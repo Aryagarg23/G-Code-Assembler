@@ -84,7 +84,7 @@ function ViewerPage() {
                 alt="KV Logo" 
                 className="h-8 w-8"
               />
-              <span className="ml-2 text-xl font-semibold text-gray-900">GCode Assembly Portal</span>
+              <span className="ml-2 text-xl font-semibold text-gray-900">Print View Portal</span>
             </div>
           </div>
         </div>
