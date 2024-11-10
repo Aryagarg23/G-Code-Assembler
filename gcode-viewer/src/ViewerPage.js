@@ -76,7 +76,7 @@ function ViewerPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <nav className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex items-center">
               <img 
@@ -138,9 +138,40 @@ function ViewerPage() {
   <div className="space-y-6">
     {/* Model Details Card */}
     <Card>
-      <CardHeader>
-        <h3 className="text-lg font-medium">Model Details</h3>
-      </CardHeader>
+<CardHeader>
+  <div className="flex items-center justify-between">
+    <h3 className="text-lg font-medium">Model Details</h3>
+    <button
+      id = 'jensenButton'
+      className="bg-green-600 hover:bg-green-700 p-3 border-2 border-green-800 rounded-md transition duration-200 ease-in-out transform hover:scale-85 shadow-md"
+      title="Download Model"
+      onClick={() => {
+        if (fileData) {
+          const link = document.createElement('a');
+          link.href = fileData;
+          link.download = 'model.stl'; // Default name for the downloaded file
+          link.click();
+        }
+      }}
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        className="h-6 w-6 text-white"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+      >
+        <path
+          d="M12 16l4-4h-3V4h-2v8H8l4 4zM20 18H4v2h16v-2z"
+        />
+      </svg>
+    </button>
+  </div>
+</CardHeader>
+
+
+
+
+
       <CardContent>
         {modelData && (
           <div className="space-y-4">
