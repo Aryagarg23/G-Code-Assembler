@@ -27,10 +27,10 @@ export function ViewerControls({ controlsRef }) {
       <button onClick={handleReset} className="p-2 hover:bg-gray-100 rounded-full" title="Reset View">
         <RotateCw size={20} />
       </button>
-      <button onClick={handleZoomIn} className="p-2 hover:bg-gray-100 rounded-full" title="Zoom In">
+      <button onClick={handleZoomOut} className="p-2 hover:bg-gray-100 rounded-full" title="Zoom Out">
         <ZoomIn size={20} />
       </button>
-      <button onClick={handleZoomOut} className="p-2 hover:bg-gray-100 rounded-full" title="Zoom Out">
+      <button onClick={handleZoomIn} className="p-2 hover:bg-gray-100 rounded-full" title="Zoom In">
         <ZoomOut size={20} />
       </button>
     </div>
