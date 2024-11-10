@@ -1,6 +1,6 @@
 # G-Code Assembler and Viewer
 
-This project allows users to assemble G-code and view it through a web interface, featuring a Flask backend and a React front-end for visualizing G-code commands. The entire project can be started with a single command.
+This project allows users to assemble G-code and view it through a web interface and download the result as a .STL file, featuring a Flask backend and a React front-end for visualizing G-code commands. The entire project can be started with a single command.
 
 ## Table of Contents
 - [Prerequisites](#prerequisites)
