@@ -1,0 +1,5 @@
+DONE
+Rewrote README.md per SHARED.md spec: honest description (G-code -> STL reconstruction, not a slicer), real architecture from Backend/flask_back.py (GcodeReader, STLAutoAnalyzer, 3 Flask endpoints) and gcode-viewer (react-router + react-three-fiber), team/links/prototype/other-builds sections.
+Built prototype/gcode_prototype.py (< 150 lines, numpy + matplotlib only, garg-paper.mplstyle, Agg backend): generates a toy 7-layer square-spiral toolpath, illustrating the same layer-grouping and extrusion-length ideas the real GcodeReader uses.
+Ran the script with MPLCONFIGDIR set against /home/arya/projects/hackathons/.venv/bin/python; confirmed prototype/figures/toolpath.png and extrusion_profile.png exist and render correctly (verified visually).
+Repo was already clean (no committed node_modules/__pycache__/.DS_Store); extended .gitignore with those plus .mplcache/ and .ipynb_checkpoints/ as a precaution. No run_project.sh/.bat existed despite the old README claiming one — removed that claim, described actual manual Flask + npm start instead. Did not touch .git, did not commit/push, no license file added.

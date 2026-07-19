@@ -1,85 +1,62 @@
-# G-Code Assembler and Viewer
+# G-Code Assembler
 
-G-Code - STL
+A web tool that turns G-code into a watertight STL: upload a `.gcode` file, get a real-time 3D preview and a mesh you can download.
 
-This project allows users to assemble G-code and view it through a web interface and download the result as a .STL file, featuring a Flask backend and a React front-end for visualizing G-code commands. The entire project can be started with a single command.
+Built in 36-ish hours at MakeUC 2024 (November 2024). Winner — Kinetic Vision Challenge (3D Printing / 3D Modeling).
 
-## Table of Contents
-- [Prerequisites](#prerequisites)
-- [Installation and Setup](#installation-and-setup)
-- [Usage](#usage)
-- [Alternative Usage with `test.ipynb`](#alternative-usage-with-testipynb)
-- [Troubleshooting](#troubleshooting)
-- [Notes](#notes)
-- [License](#license)
+## What it does
 
-## Prerequisites
-1. **Python** (3.x): Ensure Python is installed and added to your PATH. [Download Python here](https://www.python.org/downloads/)
-2. **Node.js and npm**: This project requires Node.js and npm for managing front-end dependencies.
-   - [Download Node.js and npm](https://nodejs.org/en/download/prebuilt-installer) and ensure they’re added to your PATH.
+Most slicers go the other direction: mesh in, G-code out. This goes backwards. You give it a `.gcode` file — the actual toolpath a printer would run — and it reconstructs a solid mesh from the extrusion moves, then lets you spin it around in the browser before you download it.
 
-## Installation and Setup
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/Aryagarg23/G-Code-Assembler.git
-   cd G-Code-Assembler
-   ```
+The motivating case is the Kinetic Vision challenge itself: you're handed G-code and need to get back a model you can inspect and modify, without a printer on hand to just run it and look.
 
-2. **Run the Project Setup**:
-   Execute the following command based on your operating system:
+There's also a path that skips the browser entirely: a Jupyter notebook that runs the same G-code-to-STL pipeline for people who just want the file.
 
-   - **Linux/Mac**:
-     ```bash
-     ./run_project.sh
-     ```
-   - **Windows**:
-     Double-click `run_project.bat` in the project directory, or open Command Prompt, navigate to the directory, and run:
-     ```cmd
-     run_project.bat
-     ```
+## How it works
 
-   This command will automatically:
-   - Install Python dependencies.
-   - Start the Flask backend.
-   - Install npm dependencies and start the front-end server.
+- `Backend/flask_back.py` is the whole backend. A `GcodeReader` class parses FDM G-code line by line, tracking absolute/relative extrusion mode, and turns each extruding move into a line segment tagged with its layer and a segment id.
+- Each segment becomes a rectangular prism (width x height x length) with 8 vertices and 12 triangular faces, extruded along the toolpath — that's the watertight mesh, written out with `numpy-stl`.
+- `STLAutoAnalyzer` reads a generated STL back and infers print parameters from the geometry alone: layer height from the spacing between Z levels, extrusion width from horizontal edge lengths, build direction, volume, surface area, and per-layer triangle/area stats.
+- Flask exposes three endpoints: `POST /api/upload-gcode` (parse and mesh), `GET /api/stl-file` (download the result), `GET /api/model-data` (the analyzer's report, for the UI).
+- `gcode-viewer/` is the React front end — `react-router` for an upload page and a viewer page, `@react-three/fiber` and `three.js` for the interactive STL preview.
+- `Backend/test.ipynb` runs the same `GcodeReader` → STL pipeline outside the web app, for generating files directly.
 
-## Usage
-After running the setup script, your project’s components should now be running:
-- The **Flask backend** serves API endpoints at `http://localhost:5000`.
-- The **React front-end** is available at `http://localhost:3000`.
+## Prototype
 
-### To view the project:
-1. Open a web browser and go to `http://localhost:3000` to see the G-code viewer.
-2. The backend Flask server will run concurrently, handling API requests in the background.
+A standalone script that shows the two ideas the real backend relies on — segments grouped by layer, and each segment carrying an extrusion length that maps to print time — on a toy square-spiral toolpath instead of a real upload. Illustrative only, not the production parser.
 
-## Alternative Usage with `test.ipynb`
+Run it:
 
-If you only need to generate STL files and don’t require the web interface, you can use the Jupyter notebook `test.ipynb` to work with STL files directly:
+```bash
+cd prototype
+MPLCONFIGDIR=/path/to/mplcache python gcode_prototype.py
+```
 
-1. **Install Dependencies**: 
-   From the `G-Code-Assembler` directory, install the required Python packages:
-   ```bash
-   pip install -r requirements.txt
-   ```
+It generates a 7-layer inward square spiral, colors each layer's path (folding back to a 4-color palette past layer 4), and estimates per-layer print time from segment length at a constant feedrate.
 
-2. **Run the Jupyter Notebook**:
-   Open `test.ipynb` using Jupyter Notebook or Jupyter Lab:
-   ```bash
-   jupyter notebook test.ipynb
-   ```
-   
-   This notebook allows you to generate STL files without needing to set up or run the front end. Simply run each cell in `test.ipynb` to execute the required operations.
+![Toy square-spiral toolpath, colored by layer](https://vircgxpcwyvniemqmdyi.supabase.co/storage/v1/object/public/media/writing/G-Code-Assembler/toolpath.png)
+![Per-layer extrusion time profile](https://vircgxpcwyvniemqmdyi.supabase.co/storage/v1/object/public/media/writing/G-Code-Assembler/extrusion_profile.png)
 
-## Troubleshooting
-- **Module Installation Issues**:
-  - If you encounter an error with `from stl import mesh`, please refer to this issue: [numpy-stl Issue #55](https://github.com/wolph/numpy-stl/issues/55).
-- **Node.js Not Found**:
-  - If the script indicates that `npm` is missing, install it manually from the link in the Prerequisites and ensure it's added to your PATH.
+## Team
 
-## Notes
-- During the npm installation, you may see warnings about deprecated packages. These are non-critical, and the application should still run without issues.
-- For any further customization or additional troubleshooting, please refer to the documentation of [Flask](https://flask.palletsprojects.com/) and [React](https://reactjs.org/).
+Solo build by Arya ([@Aryagarg23](https://github.com/Aryagarg23)) — backend, frontend, and the mesh reconstruction.
 
-## License
-This project is licensed under the MIT License.
+## Links
 
+- Devpost: https://devpost.com/software/g-code-assembler
+- Demo video: https://youtu.be/q7wP98uev2o
+- Writeup: https://aryagarg23.com/writing/g-code-assembler
+- Site: https://aryagarg23.com
+- Devpost profile: https://devpost.com/Aryagarg23
+
+## More hackathon builds
+
+- [Gyrus](https://github.com/Aryagarg23/Gyrus) — agentic browser that supports curiosity instead of replacing it (WeaveHacks 2025)
+- [WhiteBox](https://github.com/Aryagarg23/WhiteBox) — traceable GraphRAG over medical literature (Future of Data 2024, 1st place)
+- [Terminally-Addicted](https://github.com/Aryagarg23/Terminally-Addicted) — Spotify, GitHub, GPT and YouTube without leaving the terminal (HackOHI/O 2024)
+- [Memento](https://github.com/Aryagarg23/Memento) — digital memory journal for Alzheimer's patients and caregivers (RevolutionUC 2024, 3rd overall)
+- [Buycott](https://github.com/Aryagarg23/Buycott) — barcode scan -> parent company -> NLP stance on social issues (MakeUC 2023, 1st overall)
+- [SignLink](https://github.com/Aryagarg23/SignLink) — video calls with real-time ASL fingerspelling to text (BoilerMake X 2023)
+- [Kuka Arm Viz](https://github.com/Aryagarg23/Visualizing-Kuka-7-Node-Robot-Arm) — interactive 7-DOF robot arm in WebGL with inverse kinematics (RevolutionUC 2023)
+- [Hi-Five](https://github.com/Aryagarg23/Hi-Five) — anonymous friend-matching on OCEAN personality vectors (SASEhack 2024)
+- [Friction](https://github.com/Aryagarg23/Friction) — speculative OS + hardware that protects flow state with physical friction (Fig Build 2026)
