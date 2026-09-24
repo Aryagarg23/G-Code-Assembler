@@ -21,18 +21,37 @@ There's also a path that skips the browser entirely: a Jupyter notebook that run
 - `gcode-viewer/` is the React front end — `react-router` for an upload page and a viewer page, `@react-three/fiber` and `three.js` for the interactive STL preview.
 - `Backend/test.ipynb` runs the same `GcodeReader` → STL pipeline outside the web app, for generating files directly.
 
+## Run locally
+
+The browser and Flask server run separately. From the repository root, install the Python dependencies and start the backend:
+
+```sh
+python -m pip install -r requirements.txt
+python Backend/flask_back.py
+```
+
+In another terminal, start the React frontend:
+
+```sh
+cd gcode-viewer
+npm install
+npm start
+```
+
+Open `http://localhost:3000`. The frontend is configured to call the Flask server at `http://localhost:5001`. This is a local prototype; it processes one current model in the server process at a time and only the backend's regular FDM G-code mode is implemented.
+
 ## Prototype
 
 A standalone script that shows the two ideas the real backend relies on — segments grouped by layer, and each segment carrying an extrusion length that maps to print time — on a toy square-spiral toolpath instead of a real upload. Illustrative only, not the production parser.
 
-Run it:
+The diagram script needs Python, NumPy, and Matplotlib. Run from the repository root:
 
-```bash
-cd prototype
-MPLCONFIGDIR=/path/to/mplcache python gcode_prototype.py
+```sh
+python -m pip install numpy matplotlib
+python prototype/gcode_prototype.py
 ```
 
-It generates a 7-layer inward square spiral, colors each layer's path (folding back to a 4-color palette past layer 4), and estimates per-layer print time from segment length at a constant feedrate.
+It writes the two diagrams to `prototype/figures/`. The script generates a 7-layer inward square spiral, colors each layer's path (folding back to a 4-color palette past layer 4), and estimates per-layer print time from segment length at a constant feedrate.
 
 ![Toy square-spiral toolpath, colored by layer](https://vircgxpcwyvniemqmdyi.supabase.co/storage/v1/object/public/media/writing/G-Code-Assembler/toolpath.png)
 ![Per-layer extrusion time profile](https://vircgxpcwyvniemqmdyi.supabase.co/storage/v1/object/public/media/writing/G-Code-Assembler/extrusion_profile.png)

@@ -6,12 +6,11 @@ that matter in the real pipeline: segments are grouped by layer, and each segmen
 extrusion length that maps to print time.
 """
 import matplotlib
+from pathlib import Path
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-
-plt.style.use("/home/arya/projects/hackathons/.style/garg-paper.mplstyle")
 
 PALETTE = ["#3b42db", "#c2491d", "#6f2f96", "#77701c"]
 FEEDRATE_MM_S = 60.0  # toy constant feedrate, stand-in for the F value in real G-code
@@ -93,5 +92,7 @@ def plot_extrusion_profile(layers, outfile):
 
 if __name__ == "__main__":
     layers = build_layers()
-    plot_toolpath(layers, "prototype/figures/toolpath.png")
-    plot_extrusion_profile(layers, "prototype/figures/extrusion_profile.png")
+    figures_dir = Path(__file__).resolve().parent / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    plot_toolpath(layers, figures_dir / "toolpath.png")
+    plot_extrusion_profile(layers, figures_dir / "extrusion_profile.png")
