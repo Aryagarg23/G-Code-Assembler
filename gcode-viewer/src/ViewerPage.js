@@ -93,7 +93,6 @@ function ViewerPage() {
                 <div className="space-y-6">
                   <ModelViewer
                     fileData={model.url}
-                    buildDirection="Z"
                     currentLayer={currentLayer}
                     layerHeight={layerHeight}
                     controlsRef={controlsRef}
