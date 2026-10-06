@@ -23,7 +23,7 @@ There's also a path that skips the browser entirely: a Jupyter notebook that run
 
 ## In the browser (2026)
 
-`gcode-viewer/` now runs entirely in the browser; the Flask server is not needed. Live at [aryagarg23.com/play/gcode-assembler](https://aryagarg23.com/play/gcode-assembler).
+`gcode-viewer/` now runs entirely in the browser; the Flask server is not needed. Use it at [aryagarg23.com/gcode-to-stl](https://aryagarg23.com/gcode-to-stl).
 
 - `src/engine/legacy.mjs` is `flask_back.py` ported line for line ("Hackathon mesh"): same segments, layers and triangle counts as the Python on the challenge files (checked in `test/engine.test.mjs`).
 - `src/engine/parse.mjs` is a new reader: G92 resets, relative XYZ/E, inches, arcs (G2/G3, I/J or R), volumetric E (M200), and bead width from the filament each move pushes out. It keeps only the part, using the comments Bambu Studio/OrcaSlicer, PrusaSlicer/SuperSlicer, Cura, ideaMaker and Simplify3D write: start/end code, purge lines, skirts, brims, rafts, supports and wipe/prime towers are left out. Files without such comments keep every extrusion.
