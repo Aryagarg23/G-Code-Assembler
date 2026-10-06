@@ -137,6 +137,7 @@ function ViewerPage() {
                       <Row label="Volume">{s.volume === null ? 'not defined (not closed)' : `${num(s.volume / 1000, 2)} cm³`}</Row>
                       <Row label="Size">{num(s.size.x, 2)} × {num(s.size.y, 2)} × {num(s.size.z, 2)} mm</Row>
                       <Row label="Triangles">{s.triangles.toLocaleString()}</Row>
+                      {s.simplified && <Row label="Simplified">{s.simplified.kept ? `from ${s.simplified.before.toLocaleString()}, within ${s.simplified.tolerance} mm` : 'skipped (would not stay closed)'}</Row>}
                       <Row label="File">{mb(s.fileBytes)}</Row>
                       {solid && <Row label="Detail">{num(s.cell, 2)} mm, {s.subSlices} per layer</Row>}
                       {solid && <Row label="Inside">{s.filled ? 'filled' : 'as printed'}</Row>}

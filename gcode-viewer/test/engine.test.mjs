@@ -9,6 +9,7 @@ import { parseGcode } from '../src/engine/parse.mjs';
 import { buildSolid, toTriangles, checkClosed, RESOLUTIONS } from '../src/engine/solid.mjs';
 import { analyze, massProperties } from '../src/engine/stl.mjs';
 import { processGcode } from '../src/engine/pipeline.mjs';
+import { simplify } from '../src/engine/simplify.mjs';
 
 const KV = new URL('../../KV_Challenge/Public Materials/', import.meta.url);
 const gcode = name => fs.readFileSync(new URL(`${name}.gcode`, KV), 'utf8');
@@ -219,4 +220,30 @@ test('volumetric E (M200 D) gives the same bead as the length form', () => {
   const asLength = parseGcode('; CHANGE_LAYER\nM83\nG1 X0 Y0 Z0.2\nG1 X10 Y0 E0.4\n').layers[0].segs[4];
   const asVolume = parseGcode(`; CHANGE_LAYER\nM83\nM200 D1.75\nG1 X0 Y0 Z0.2\nG1 X10 Y0 E${0.4 * area}\n`).layers[0].segs[4];
   close(asVolume, asLength, 1e-9, 'width');
+});
+
+// Why: the grid mesh is huge (over a million triangles for these parts) and
+// mostly flat. Simplifying must keep it closed and keep its shape: the volume
+// and size barely move while the triangle count drops several times.
+for (const [name, minFactor] of [['SquarePrism', 5], ['3DBenchy', 3]]) {
+  test(`simplifying ${name} keeps it closed, its volume and its size, with ${minFactor}x fewer triangles`, () => {
+    const solid = buildSolid(parseGcode(gcode(name)), RESOLUTIONS.coarse);
+    const small = simplify(solid, { tolerance: 0.02 });
+    assert.equal(checkClosed(small).closed, true);
+    const before = toTriangles(solid), after = toTriangles(small);
+    assert.ok(before.length / after.length > minFactor, `${before.length / 9} -> ${after.length / 9}`);
+    close(massProperties(after).volume, massProperties(before).volume, 0.002, 'volume');
+    extent(after).forEach((v, k) => assert.ok(Math.abs(v - extent(before)[k]) < 0.02, `size ${k}`));
+  });
+}
+
+// Why: the tolerance is a promise about distance. Collapses that would move
+// the surface more than it are refused, so a tighter tolerance keeps more.
+test('a tighter tolerance keeps more triangles; zero keeps the mesh as it is', () => {
+  const solid = buildSolid(parseGcode(gcode('3DBenchy')), RESOLUTIONS.coarse);
+  const loose = simplify(solid, { tolerance: 0.05 }).indices.length;
+  const tight = simplify(solid, { tolerance: 0.005 }).indices.length;
+  assert.ok(tight > loose, `${tight} vs ${loose}`);
+  const { summary } = processGcode(gcode('SquarePrism'), { tolerance: 0 });
+  assert.equal(summary.simplified, null);
 });

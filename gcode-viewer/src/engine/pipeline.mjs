@@ -12,10 +12,12 @@ import { legacyRead, legacyMesh } from './legacy.mjs';
 import { parseGcode } from './parse.mjs';
 import { buildSolid, toTriangles, checkClosed, RESOLUTIONS } from './solid.mjs';
 import { massProperties, toBinaryStl } from './stl.mjs';
+import { simplify } from './simplify.mjs';
 
 /**
  * @param {string} text  G-code
- * @param {{ name?: string, method?: 'solid' | 'legacy', resolution?: keyof typeof RESOLUTIONS, fill?: boolean, onProgress?: (f: number) => void }} options
+ * @param {{ name?: string, method?: 'solid' | 'legacy', resolution?: keyof typeof RESOLUTIONS, fill?: boolean, tolerance?: number, onProgress?: (f: number) => void }} options
+ *   tolerance: simplification limit in mm (0 = off; default 0.02)
  */
 export function processGcode(text, options = {}) {
   const name = options.name ?? 'model.gcode';
@@ -46,17 +48,29 @@ export function processGcode(text, options = {}) {
   const parsed = parseGcode(text);
   if (!parsed.layers.length) throw new Error('No extrusion found in this file.');
   const fill = options.fill ?? true;
-  const solid = buildSolid(parsed, { ...(RESOLUTIONS[options.resolution ?? 'coarse'] ?? RESOLUTIONS.coarse), fill, onProgress: options.onProgress });
-  const tris = toTriangles(solid);
+  const solid = buildSolid(parsed, { ...(RESOLUTIONS[options.resolution ?? 'coarse'] ?? RESOLUTIONS.coarse), fill, onProgress: f => options.onProgress?.(0.8 * f) });
+  const tolerance = options.tolerance ?? 0.02;
+  let mesh = solid;
+  let simplified = null;
+  if (tolerance > 0) {
+    const small = simplify(solid, { tolerance });
+    // Only keep the simplified mesh if it is still closed; otherwise say so
+    // and hand over the full one.
+    simplified = { tolerance, before: solid.indices.length / 3, kept: checkClosed(small).closed };
+    if (simplified.kept) mesh = small;
+    options.onProgress?.(1);
+  }
+  const tris = toTriangles(mesh);
   const stl = toBinaryStl(tris, name);
-  const { closed } = checkClosed(solid);
+  const { closed } = checkClosed(mesh);
   const { stats, settings, layers } = parsed;
   return {
     stl,
     summary: {
       method,
       closed,
-      triangles: solid.indices.length / 3,
+      triangles: mesh.indices.length / 3,
+      simplified,
       fileBytes: stl.byteLength,
       volume: closed ? massProperties(tris).volume : null,
       size: extent(tris),

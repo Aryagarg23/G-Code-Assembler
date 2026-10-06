@@ -22,6 +22,13 @@ const RESOLUTIONS = [
   { id: 'fine', label: 'Fine', note: '0.1 mm cells, 4 samples per layer (slow, big files)' },
 ];
 
+// Simplification: merge triangles where the surface moves less than this.
+const SIMPLIFY = [
+  { value: 0.02, label: '0.02 mm', note: 'About 4 to 7 times fewer triangles' },
+  { value: 0.05, label: '0.05 mm', note: 'Fewer still; flat walls go to a few triangles' },
+  { value: 0, label: 'Off', note: 'Every triangle from the grid' },
+];
+
 function UploadPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState(null);
@@ -29,6 +36,7 @@ function UploadPage() {
   const [method, setMethod] = useState('solid');
   const [resolution, setResolution] = useState('coarse');
   const [fill, setFill] = useState(true);
+  const [tolerance, setTolerance] = useState(0.02);
   const [progress, setProgress] = useState(null);
   const navigate = useNavigate();
 
@@ -74,7 +82,7 @@ function UploadPage() {
     setUploadError(null);
     setProgress(0);
     try {
-      await runInWorker(file, { method, resolution, fill }, setProgress);
+      await runInWorker(file, { method, resolution, fill, tolerance }, setProgress);
       navigate('/viewer');
     } catch (error) {
       console.error('Processing error:', error);
@@ -166,6 +174,17 @@ function UploadPage() {
                 <input type="checkbox" checked={fill} onChange={e => setFill(e.target.checked)} className="mt-1" />
                 <span><span className="text-gray-900">Fill enclosed spaces</span><span className="block text-gray-500">Infill pockets become solid, so the mesh is the part's outer boundary. Off: the part as printed, infill gaps and all.</span></span>
               </label>
+              <fieldset>
+                <legend className="font-medium text-gray-900 mb-2">Simplify</legend>
+                <div className="flex flex-wrap gap-4">
+                  {SIMPLIFY.map(o => (
+                    <label key={o.value} className="flex gap-2 items-start">
+                      <input type="radio" name="simplify" checked={tolerance === o.value} onChange={() => setTolerance(o.value)} className="mt-1" />
+                      <span><span className="text-gray-900">{o.label}</span><span className="block text-gray-500">{o.note}</span></span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
             </>
           )}
         </div>
