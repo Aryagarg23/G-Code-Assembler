@@ -27,7 +27,11 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "test:engine": "node --test test/",
+    "samples": "node -e \"const fs=require('fs');fs.mkdirSync('public/samples',{recursive:true});for(const f of ['SquarePrism','KV_Monogram','3DBenchy'])fs.copyFileSync('../KV_Challenge/Public Materials/'+f+'.gcode','public/samples/'+f+'.gcode')\"",
+    "prestart": "npm run samples",
+    "prebuild": "npm run samples"
   },
   "eslintConfig": {
     "extends": [

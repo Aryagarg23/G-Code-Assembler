@@ -1,77 +1,62 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader } from "./components/ui/card";
 import { Slider } from "./components/ui/slider";
-import { ModelViewer } from './components/ModelViewer';  // Updated import
-import { ViewerControls } from './components/ViewsControl'; // Import ViewerControls
+import { ModelViewer } from './components/ModelViewer';
+import { ViewerControls } from './components/ViewsControl';
 import logoImage from './logo.svg';
+import { currentModel } from './engine/session';
+
+const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? v.toFixed(d) : '–');
+const mb = bytes => `${(bytes / 1048576).toFixed(1)} MB`;
+
+function Row({ label, children }) {
+  return (
+    <div className="flex justify-between gap-4">
+      <span>{label}</span>
+      <span className="text-right text-gray-900">{children}</span>
+    </div>
+  );
+}
+
+function Section({ title, children }) {
+  return (
+    <div>
+      <h4 className="text-sm font-medium mb-2">{title}</h4>
+      <div className="text-sm text-gray-600 space-y-1">{children}</div>
+    </div>
+  );
+}
 
 function ViewerPage() {
-  const location = useLocation();
+  const navigate = useNavigate();
   const [currentLayer, setCurrentLayer] = useState(0);
-  const [modelData, setModelData] = useState(null);
-  const [fileData, setFileData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const controlsRef = useRef(); // Create a reference for OrbitControls
+  const [model, setModel] = useState(null);
+  const controlsRef = useRef();
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Fetch model data
-        const modelResponse = await fetch('http://localhost:5001/api/model-data');
-        if (!modelResponse.ok) {
-          throw new Error(`Failed to fetch model data: ${modelResponse.statusText}`);
-        }
-        const modelData = await modelResponse.json();
-        setModelData(modelData);
+  // The model was built in the browser (engine/session.js) on the upload page.
+  useEffect(() => { setModel(currentModel()); }, []);
 
-        // Fetch uploaded file
-        const fileResponse = await fetch('http://localhost:5001/api/stl-file');
-        if (!fileResponse.ok) {
-          throw new Error('Failed to fetch file. Please upload a file first.');
-        }
-        
-        const fileBlob = await fileResponse.blob();
-        const fileUrl = URL.createObjectURL(fileBlob);
-        setFileData(fileUrl);
-        
-      } catch (error) {
-        console.error('Error fetching data:', error);
-        setError(error.message);
-      } finally {
-        setLoading(false);
-      }
-    };
+  if (!model) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-700">
+        <span>No model yet. <button className="underline text-blue-600" onClick={() => navigate('/')}>Upload a G-code file</button></span>
+      </div>
+    );
+  }
 
-    fetchData();
+  const s = model.summary;
+  const solid = s.method === 'solid';
+  const layerCount = Math.max(1, s.layerCount);
+  const layer = s.layers[currentLayer];
+  const layerHeight = s.layerHeight || 0.2;
 
-    return () => {
-      if (fileData) {
-        URL.revokeObjectURL(fileData);
-      }
-    };
-  }, []);
-
-  const handleLayerChange = (value) => {
-    setCurrentLayer(value[0]);
+  const download = () => {
+    const link = document.createElement('a');
+    link.href = model.url;
+    link.download = model.name;
+    link.click();
   };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-red-600">Error: {error}</div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -79,12 +64,11 @@ function ViewerPage() {
         <div className="mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex items-center">
-              <img 
-                src={logoImage} 
-                alt="KV Logo" 
-                className="h-8 w-8"
-              />
+              <img src={logoImage} alt="KV Logo" className="h-8 w-8" />
               <span className="ml-2 text-xl font-semibold text-gray-900">Print View Portal</span>
+            </div>
+            <div className="flex items-center">
+              <button className="text-sm text-blue-600 hover:text-blue-500" onClick={() => navigate('/')}>← Another file</button>
             </div>
           </div>
         </div>
@@ -92,37 +76,32 @@ function ViewerPage() {
 
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex gap-8">
-          {/* Main Viewer Card */}
           <div className="flex-grow">
             <Card className="h-full">
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-semibold">Model Viewer</h2>
-                  {/* Use ViewerControls here, pass the ref to allow interaction with controls */}
+                  <h2 className="text-xl font-semibold">{model.file}</h2>
                   <ViewerControls controlsRef={controlsRef} />
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
-                  {/* 3D Viewer */}
-                  <ModelViewer 
-                    fileData={fileData}
-                    buildDirection={modelData?.detected_parameters?.build_direction || 'Z'}
+                  <ModelViewer
+                    fileData={model.url}
+                    buildDirection="Z"
                     currentLayer={currentLayer}
-                    layerHeight={modelData?.detected_parameters?.layer_height || 0.2}
-                    controlsRef={controlsRef} // Pass controlsRef to ModelViewer
+                    layerHeight={layerHeight}
+                    controlsRef={controlsRef}
                   />
-
-                  {/* Layer Controls */}
                   <div className="space-y-4">
                     <div className="flex justify-between text-sm text-gray-600">
-                      <span>Layer: {currentLayer}</span>
-                      <span>Height: {(currentLayer * (modelData?.detected_parameters?.layer_height || 0.2)).toFixed(2)}mm</span>
+                      <span>Layer {currentLayer + 1} of {layerCount}</span>
+                      <span>{layer ? `Z ${num(layer.z, 2)} mm` : `About ${num((currentLayer + 1) * layerHeight, 2)} mm up`}</span>
                     </div>
                     <Slider
                       value={[currentLayer]}
-                      onValueChange={handleLayerChange}
-                      max={modelData?.detected_parameters?.num_layers - 1 || 0}
+                      onValueChange={v => setCurrentLayer(v[0])}
+                      max={layerCount - 1}
                       step={1}
                       className="w-full"
                     />
@@ -132,163 +111,65 @@ function ViewerPage() {
             </Card>
           </div>
 
-          {/* Side Panel */}
-          
-<div className="w-80">
-  <div className="space-y-6">
-    {/* Model Details Card */}
-    <Card>
-<CardHeader>
-  <div className="flex items-center justify-between">
-    <h3 className="text-lg font-medium">Model Details</h3>
-    <button
-      id = 'jensenButton'
-      className="bg-green-600 hover:bg-green-700 p-3 border-2 border-green-800 rounded-md transition duration-200 ease-in-out transform hover:scale-85 shadow-md"
-      title="Download Model"
-      onClick={() => {
-        if (fileData) {
-          const link = document.createElement('a');
-          link.href = fileData;
-          link.download = 'model.stl'; // Default name for the downloaded file
-          link.click();
-        }
-      }}
-    >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        className="h-6 w-6 text-white"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-      >
-        <path
-          d="M12 16l4-4h-3V4h-2v8H8l4 4zM20 18H4v2h16v-2z"
-        />
-      </svg>
-    </button>
-  </div>
-</CardHeader>
+          <div className="w-80">
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-medium">STL</h3>
+                    <button
+                      className="bg-green-600 hover:bg-green-700 text-white text-sm px-3 py-2 rounded-md"
+                      title="Download the STL"
+                      onClick={download}
+                    >
+                      Download
+                    </button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <Section title="Mesh">
+                      <Row label="Closed solid">{s.closed ? 'Yes' : 'No'}</Row>
+                      <Row label="Volume">{s.volume === null ? 'not defined (not closed)' : `${num(s.volume / 1000, 2)} cm³`}</Row>
+                      <Row label="Size">{num(s.size.x, 2)} × {num(s.size.y, 2)} × {num(s.size.z, 2)} mm</Row>
+                      <Row label="Triangles">{s.triangles.toLocaleString()}</Row>
+                      <Row label="File">{mb(s.fileBytes)}</Row>
+                      {solid && <Row label="Detail">{num(s.cell, 2)} mm, {s.subSlices} per layer</Row>}
+                      {solid && <Row label="Inside">{s.filled ? 'filled' : 'as printed'}</Row>}
+                    </Section>
+                    {solid ? (
+                      <Section title="From the G-code">
+                        <Row label="Layers">{s.layerCount} × {num(s.layerHeight, 2)} mm</Row>
+                        <Row label="Bead width">{num(s.beadWidth, 2)} mm (median)</Row>
+                        <Row label="Filament used">{num(s.filament / 1000, 2)} cm³</Row>
+                        <Row label="Left out">{Object.keys(s.leftOut).length ? Object.entries(s.leftOut).map(([k, v]) => `${k} (${v})`).join(', ') : (s.keptEverything ? 'nothing (no slicer markers found)' : 'nothing')}</Row>
+                      </Section>
+                    ) : (
+                      <Section title="Hackathon mesh">
+                        <p>One 0.4 × 0.2 mm box per move, as built at MakeUC 2024. The boxes overlap and are not one solid, so there is no volume, and purge lines and start code are included.</p>
+                        <Row label="Moves">{s.segments.toLocaleString()}</Row>
+                      </Section>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
 
-
-
-
-
-      <CardContent>
-        {modelData && (
-          <div className="space-y-4">
-            {/* Print Parameters */}
-            <div>
-              <h4 className="text-sm font-medium mb-2">Print Parameters</h4>
-              <div className="text-sm text-gray-600 space-y-1">
-                <div className="flex justify-between">
-                  <span>Layer Height:</span>
-                  <span>{modelData.detected_parameters.layer_height.toFixed(3)}mm</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Extrusion Width:</span>
-                  <span>{modelData.detected_parameters.extrusion_width.toFixed(3)}mm</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Total Layers:</span>
-                  <span>{modelData.detected_parameters.num_layers}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Build Direction:</span>
-                  <span>{modelData.detected_parameters.build_direction}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Model Statistics */}
-            <div>
-              <h4 className="text-sm font-medium mb-2">Model Statistics</h4>
-              <div className="text-sm text-gray-600 space-y-1">
-                <div className="flex justify-between">
-                  <span>Triangles:</span>
-                  <span>{modelData.model_stats.num_triangles.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Volume:</span>
-                  <span>{modelData.model_stats.volume_mm3.toFixed(2)}mm³</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Surface Area:</span>
-                  <span>{modelData.model_stats.surface_area_mm2.toFixed(2)}mm²</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Dimensions */}
-            <div>
-              <h4 className="text-sm font-medium mb-2">Dimensions</h4>
-              <div className="text-sm text-gray-600 space-y-1">
-                <div className="flex justify-between">
-                  <span>X:</span>
-                  <span>{modelData.model_stats.dimensions_mm.x.toFixed(2)}mm</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Y:</span>
-                  <span>{modelData.model_stats.dimensions_mm.y.toFixed(2)}mm</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Z:</span>
-                  <span>{modelData.model_stats.dimensions_mm.z.toFixed(2)}mm</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Quality Metrics */}
-            <div>
-              <h4 className="text-sm font-medium mb-2">Quality Metrics</h4>
-              <div className="text-sm text-gray-600 space-y-1">
-                <div className="flex justify-between">
-                  <span>Degenerate Triangles:</span>
-                  <span>{modelData.quality_metrics.degenerate_triangles}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Small Triangles:</span>
-                  <span>{modelData.quality_metrics.small_triangles}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Min Edge Length:</span>
-                  <span>{modelData.quality_metrics.edge_stats.min_length.toFixed(3)}mm</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Max Edge Length:</span>
-                  <span>{modelData.quality_metrics.edge_stats.max_length.toFixed(3)}mm</span>
-                </div>
-              </div>
+              {layer && (
+                <Card>
+                  <CardHeader>
+                    <h3 className="text-lg font-medium">Layer {currentLayer + 1} <span className="text-sm font-normal text-red-600">(red)</span></h3>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-1 text-sm text-gray-600">
+                      <Row label="Top (nozzle) Z">{num(layer.z, 2)} mm</Row>
+                      <Row label="Thickness">{num(layer.h, 2)} mm</Row>
+                      <Row label="Beads">{layer.beads.toLocaleString()}</Row>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </div>
-        )}
-      </CardContent>
-    </Card>
-
-    {/* Layer Analysis Card */}
-    <Card>
-      <CardHeader>
-        <h3 className="text-lg font-medium">Current Layer Info (RED)</h3>
-      </CardHeader>
-      <CardContent>
-        {modelData && modelData.layer_analysis && modelData.layer_analysis[currentLayer] && (
-          <div className="space-y-2 text-sm text-gray-600">
-            <div className="flex justify-between">
-              <span>Height:</span>
-              <span>{modelData.layer_analysis[currentLayer].z_height.toFixed(2)}mm</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Area:</span>
-              <span>{modelData.layer_analysis[currentLayer].area_mm2.toFixed(2)}mm²</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Triangles:</span>
-              <span>{modelData.layer_analysis[currentLayer].num_triangles}</span>
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  </div>
-</div>
         </div>
       </div>
     </div>
