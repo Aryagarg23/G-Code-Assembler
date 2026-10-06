@@ -35,7 +35,12 @@ function ViewerPage() {
   const controlsRef = useRef();
 
   // The model was built in the browser (engine/session.js) on the upload page.
-  useEffect(() => { setModel(currentModel()); }, []);
+  // Opens on the top layer, so the whole part shows first.
+  useEffect(() => {
+    const m = currentModel();
+    setModel(m);
+    if (m) setCurrentLayer(Math.max(0, m.summary.layerCount - 1));
+  }, []);
 
   if (!model) {
     return (

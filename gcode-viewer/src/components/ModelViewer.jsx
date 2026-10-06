@@ -103,7 +103,7 @@ function Scene({ fileUrl, buildDirection, currentLayer, layerHeight, controlsRef
   return (
     <Canvas
       shadows
-      camera={{ position: [0, 0, 5], fov: 50 }}
+      camera={{ position: [1.6, 1.3, 1.9], fov: 50 }}
       style={{ background: '#f3f4f6' }}
     >
       {/* Ambient light for soft illumination */}
