@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
@@ -8,6 +8,10 @@ function Model({ url, currentLayer, layerHeight }) {
   const blueMeshRef = useRef();
   const redMeshRef = useRef();
   const { gl } = useThree();
+  // Bumped when a model finishes loading: loading swaps in fresh materials, so
+  // the layer clipping has to be applied again (before, the first view showed
+  // the whole model in the highlight colour until the slider moved).
+  const [loaded, setLoaded] = useState(0);
 
   useEffect(() => {
     const loader = new STLLoader();
@@ -60,6 +64,7 @@ function Model({ url, currentLayer, layerHeight }) {
         const scaledHeight = size.z * scaleFactor;
         blueMeshRef.current.position.y = scaledHeight / 2;
         redMeshRef.current.position.y = scaledHeight / 2;
+        setLoaded(n => n + 1);
       }
     });
   }, [url]);
@@ -87,7 +92,7 @@ function Model({ url, currentLayer, layerHeight }) {
       redMeshRef.current.material.clippingPlanes = [redClipPlaneTop, redClipPlaneBottom];
       redMeshRef.current.material.needsUpdate = true;
     }
-  }, [currentLayer, layerHeight, gl]);
+  }, [currentLayer, layerHeight, gl, loaded]);
 
   return (
     <>
