@@ -7,7 +7,7 @@ export function runInWorker(file, options, onProgress) {
   return file.text().then(text => new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./worker.js', import.meta.url));
     worker.onmessage = ({ data }) => {
-      if (data.progress !== undefined) { onProgress?.(data.progress); return; }
+      if (data.progress !== undefined) { onProgress?.(data.progress, data.step); return; }
       worker.terminate();
       if (data.error) { reject(new Error(data.error)); return; }
       const { stl, summary } = data.result;
