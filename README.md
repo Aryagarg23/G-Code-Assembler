@@ -21,24 +21,46 @@ There's also a path that skips the browser entirely: a Jupyter notebook that run
 - `gcode-viewer/` is the React front end — `react-router` for an upload page and a viewer page, `@react-three/fiber` and `three.js` for the interactive STL preview.
 - `Backend/test.ipynb` runs the same `GcodeReader` → STL pipeline outside the web app, for generating files directly.
 
-## Run locally
+## In the browser (2026)
 
-The browser and Flask server run separately. From the repository root, install the Python dependencies and start the backend:
+`gcode-viewer/` now runs entirely in the browser; the Flask server is not needed. Use it at [aryagarg23.com/gcode-to-stl](https://aryagarg23.com/gcode-to-stl).
 
-```sh
-python -m pip install -r requirements.txt
-python Backend/flask_back.py
-```
+- `src/engine/legacy.mjs` is `flask_back.py` ported line for line ("Hackathon mesh"): same segments, layers and triangle counts as the Python on the challenge files (checked in `test/engine.test.mjs`).
+- `src/engine/parse.mjs` is a new reader: G92 resets, relative XYZ/E, inches, arcs (G2/G3, I/J or R), volumetric E (M200), and bead width from the filament each move pushes out. It keeps only the part, using the comments Bambu Studio/OrcaSlicer, PrusaSlicer/SuperSlicer, Cura, ideaMaker and Simplify3D write: start/end code, purge lines, skirts, brims, rafts, supports and wipe/prime towers are left out. Files without such comments keep every extrusion.
+- `src/engine/solid.mjs` builds one closed solid ("Solid"): every bead is a rounded stadium in cross-section with round ends, unioned on a grid and meshed by marching tetrahedra. Every edge joins exactly two triangles, so the volume is real and the mesh can go into a simulation. "Fill enclosed spaces" makes infill pockets solid (the outer boundary); off, it is the part as printed.
+- `src/engine/simplify.mjs` then shrinks the solid by quadric error edge collapse: triangles merge where the surface moves less than the tolerance (0.02 mm by default), never at the cost of opening the mesh or turning a triangle over. If a simplified mesh ever fails the closed check, the full one is kept and the app says so.
 
-In another terminal, start the React frontend:
+Against the CAD models Kinetic Vision supplied with the challenge (coarse setting):
+
+| | Hackathon mesh | Solid | CAD |
+|---|---|---|---|
+| SquarePrism volume | 20,655 mm³ | 62,255 mm³ | 62,500 mm³ |
+| SquarePrism size | 128.5 × 144.2 × 25.2 | 24.99 × 99.99 × 24.97 | 25 × 100 × 25 |
+| 3DBenchy volume | 9,990 mm³ | 15,442 mm³ | 15,551 mm³ |
+| 3DBenchy size | 133.5 × 109.7 × 48.2 | 59.98 × 31.01 × 47.98 | 60 × 31 × 48 |
+| Closed | no | yes | |
+| SquarePrism triangles | 678,216 | 189,108 (1,276,868 before simplifying) | |
+| 3DBenchy triangles | 662,388 | 307,972 (1,145,840 before simplifying) | |
+
+The hackathon size includes the purge line; its volume is of overlapping boxes. Limits: tops and bottoms sit within half a sample of the true height (0.1 mm at coarse); detail finer than a cell is smoothed.
 
 ```sh
 cd gcode-viewer
 npm install
-npm start
+npm start            # http://localhost:3000
+npm run test:engine  # engine tests against the challenge files
 ```
 
-Open `http://localhost:3000`. The frontend is configured to call the Flask server at `http://localhost:5001`. This is a local prototype; it processes one current model in the server process at a time and only the backend's regular FDM G-code mode is implemented.
+## Run the original (2024) locally
+
+The 2024 version split the work between the React page and a Flask server. The server is still here:
+
+```sh
+python -m pip install -r requirements.txt
+python Backend/flask_back.py   # http://localhost:5001
+```
+
+The 2024 front end that called it is commit `04623fd` (`git checkout 04623fd -- gcode-viewer`). It processes one model at a time in the server process, and only regular FDM G-code.
 
 ## Prototype
 

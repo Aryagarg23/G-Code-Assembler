@@ -1,13 +1,17 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
 
-function Model({ url, buildDirection, currentLayer, layerHeight }) {
+function Model({ url, currentLayer, layerHeight }) {
   const blueMeshRef = useRef();
   const redMeshRef = useRef();
   const { gl } = useThree();
+  // Bumped when a model finishes loading: loading swaps in fresh materials, so
+  // the layer clipping has to be applied again (before, the first view showed
+  // the whole model in the highlight colour until the slider moved).
+  const [loaded, setLoaded] = useState(0);
 
   useEffect(() => {
     const loader = new STLLoader();
@@ -49,22 +53,21 @@ function Model({ url, buildDirection, currentLayer, layerHeight }) {
         blueMeshRef.current.scale.set(scaleFactor, scaleFactor, scaleFactor);
         redMeshRef.current.scale.set(scaleFactor, scaleFactor, scaleFactor);
 
-        // Apply the same rotation based on build direction to both models
-        if (buildDirection === 'X') {
-          blueMeshRef.current.rotation.x = -Math.PI / 2;
-          redMeshRef.current.rotation.x = -Math.PI / 2;
-        } else if (buildDirection === 'Y') {
-          blueMeshRef.current.rotation.x = Math.PI / 2;
-          redMeshRef.current.rotation.x = Math.PI / 2;
-        }
+        // STL is Z-up (the printer's build direction); three.js is Y-up. Turn
+        // the model so its layers stack upward. (The 2024 viewer only turned
+        // "X" and "Y" builds, so ordinary Z-up prints lay on their side and
+        // the layer highlight cut along the wrong axis.)
+        blueMeshRef.current.rotation.x = -Math.PI / 2;
+        redMeshRef.current.rotation.x = -Math.PI / 2;
 
         // Move models up by half of their height to align the base with the origin
         const scaledHeight = size.z * scaleFactor;
         blueMeshRef.current.position.y = scaledHeight / 2;
         redMeshRef.current.position.y = scaledHeight / 2;
+        setLoaded(n => n + 1);
       }
     });
-  }, [url, buildDirection]);
+  }, [url]);
 
   // Update clipping planes for blue and red models
   useEffect(() => {
@@ -89,7 +92,7 @@ function Model({ url, buildDirection, currentLayer, layerHeight }) {
       redMeshRef.current.material.clippingPlanes = [redClipPlaneTop, redClipPlaneBottom];
       redMeshRef.current.material.needsUpdate = true;
     }
-  }, [currentLayer, layerHeight, gl]);
+  }, [currentLayer, layerHeight, gl, loaded]);
 
   return (
     <>
@@ -99,11 +102,11 @@ function Model({ url, buildDirection, currentLayer, layerHeight }) {
   );
 }
 
-function Scene({ fileUrl, buildDirection, currentLayer, layerHeight, controlsRef }) {
+function Scene({ fileUrl, currentLayer, layerHeight, controlsRef }) {
   return (
     <Canvas
       shadows
-      camera={{ position: [0, 0, 5], fov: 50 }}
+      camera={{ position: [1.6, 1.3, 1.9], fov: 50 }}
       style={{ background: '#f3f4f6' }}
     >
       {/* Ambient light for soft illumination */}
@@ -111,7 +114,7 @@ function Scene({ fileUrl, buildDirection, currentLayer, layerHeight, controlsRef
       {/* Directional light for strong shadows */}
       <directionalLight position={[5, 10, 5]} intensity={1.2} castShadow />
 
-      <Model url={fileUrl} buildDirection={buildDirection} currentLayer={currentLayer} layerHeight={layerHeight} />
+      <Model url={fileUrl} currentLayer={currentLayer} layerHeight={layerHeight} />
 
       {/* Ground Plane */}
       <mesh receiveShadow position={[0, -0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -139,11 +142,11 @@ function Scene({ fileUrl, buildDirection, currentLayer, layerHeight, controlsRef
   );
 }
 
-export function ModelViewer({ fileData, buildDirection = 'Z', currentLayer, layerHeight, controlsRef }) {
+export function ModelViewer({ fileData, currentLayer, layerHeight, controlsRef }) {
   return (
     <div className="w-full h-[600px] rounded-lg overflow-hidden">
       {fileData ? (
-        <Scene fileUrl={fileData} buildDirection={buildDirection} currentLayer={currentLayer} layerHeight={layerHeight} controlsRef={controlsRef} />
+        <Scene fileUrl={fileData} currentLayer={currentLayer} layerHeight={layerHeight} controlsRef={controlsRef} />
       ) : (
         <div className="w-full h-full flex items-center justify-center bg-gray-100">
           <p className="text-gray-500">No model loaded</p>
