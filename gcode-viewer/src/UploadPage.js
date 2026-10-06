@@ -12,87 +12,87 @@ const SAMPLES = [
 ];
 
 const METHODS = [
-  { id: 'solid', label: 'Solid', note: 'One closed surface. Each bead is a rounded stadium as wide as the filament pushed out. Supports, purge lines and skirts are left out.' },
-  { id: 'legacy', label: 'Hackathon mesh', note: 'What the MakeUC 2024 build made: a 0.4 x 0.2 mm box per move, overlapping, not one solid.' },
+  { id: 'solid', label: 'Solid', note: 'One closed surface, for measuring and simulation. Supports, purge lines and skirts are left out.' },
+  { id: 'legacy', label: 'Hackathon mesh', note: 'What the MakeUC 2024 build made: overlapping boxes, not one solid.' },
 ];
 
 const RESOLUTIONS = [
-  { id: 'coarse', label: 'Coarse', note: '0.3 mm cells, 1 sample per layer' },
-  { id: 'medium', label: 'Medium', note: '0.2 mm cells, 2 samples per layer' },
-  { id: 'fine', label: 'Fine', note: '0.1 mm cells, 4 samples per layer (slow, big files)' },
+  { id: 'coarse', label: 'Coarse', note: '0.3 mm' },
+  { id: 'medium', label: 'Medium', note: '0.2 mm, slower' },
+  { id: 'fine', label: 'Fine', note: '0.1 mm, slow, big files' },
 ];
 
 // Simplification: merge triangles where the surface moves less than this.
 const SIMPLIFY = [
-  { value: 0.02, label: '0.02 mm', note: 'About 4 to 7 times fewer triangles' },
-  { value: 0.05, label: '0.05 mm', note: 'Fewer still; flat walls go to a few triangles' },
-  { value: 0, label: 'Off', note: 'Every triangle from the grid' },
+  { value: 0.02, label: '0.02 mm' },
+  { value: 0.05, label: '0.05 mm' },
+  { value: 0, label: 'Off' },
 ];
 
+// Choosing a file or a sample converts it straight away with the options
+// above it. (It used to only select the file, and the button that started the
+// conversion sat out of sight below the options, so a click looked like it
+// did nothing.)
 function UploadPage() {
   const [isDragging, setIsDragging] = useState(false);
-  const [file, setFile] = useState(null);
-  const [uploadError, setUploadError] = useState(null);
   const [method, setMethod] = useState('solid');
   const [resolution, setResolution] = useState('coarse');
   const [fill, setFill] = useState(true);
   const [tolerance, setTolerance] = useState(0.02);
-  const [progress, setProgress] = useState(null);
+  const [status, setStatus] = useState(null); // { name, step, progress } while converting
+  const [error, setError] = useState(null);
   const navigate = useNavigate();
+  const busy = status !== null;
 
-  const accept = (f) => {
-    if (f?.name.toLowerCase().endsWith('.gcode')) {
-      setFile(f);
-      setUploadError(null);
-    } else {
-      setUploadError('Please upload a .gcode file');
+  const convert = async (file) => {
+    if (busy) return;
+    if (!file?.name.toLowerCase().endsWith('.gcode')) {
+      setError('Please choose a .gcode file.');
+      return;
+    }
+    setError(null);
+    setStatus({ name: file.name, step: 'Reading the G-code', progress: 0 });
+    try {
+      await runInWorker(file, { method, resolution, fill, tolerance }, (progress, step) =>
+        setStatus(s => ({ ...s, progress, step: step ?? s.step })));
+      navigate('/viewer');
+    } catch (e) {
+      console.error('Processing error:', e);
+      setError(`${file.name}: ${e.message || 'could not be converted.'}`);
+      setStatus(null);
     }
   };
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    accept(e.dataTransfer.files[0]);
-  };
-
-  const handleFileSelect = (e) => accept(e.target.files[0]);
 
   const loadSample = async (name) => {
-    setUploadError(null);
+    if (busy) return;
+    setError(null);
+    setStatus({ name, step: 'Downloading the sample', progress: 0 });
     try {
       const res = await fetch(`${process.env.PUBLIC_URL}/samples/${name}`);
-      if (!res.ok) throw new Error(`Could not load ${name}`);
-      setFile(new File([await res.blob()], name));
-    } catch (error) {
-      setUploadError(error.message);
+      if (!res.ok) throw new Error(`could not load the sample (HTTP ${res.status})`);
+      const file = new File([await res.blob()], name);
+      setStatus(null);
+      await convert(file);
+    } catch (e) {
+      setError(`${name}: ${e.message}`);
+      setStatus(null);
     }
   };
 
-  const handleSubmit = async () => {
-    if (!file) return;
-    setUploadError(null);
-    setProgress(0);
-    try {
-      await runInWorker(file, { method, resolution, fill, tolerance }, setProgress);
-      navigate('/viewer');
-    } catch (error) {
-      console.error('Processing error:', error);
-      setUploadError(error.message || 'Failed to process the file. Please try again.');
-    } finally {
-      setProgress(null);
-    }
-  };
-
-  const busy = progress !== null;
+  const radios = (name, options, value, set) => (
+    <div className="flex flex-wrap gap-x-4 gap-y-1">
+      {options.map(o => {
+        const v = o.id ?? o.value;
+        return (
+          <label key={String(v)} className="flex gap-1.5 items-center">
+            <input type="radio" name={name} checked={value === v} onChange={() => set(v)} disabled={busy} />
+            <span className="text-gray-900">{o.label}</span>
+            {o.note && <span className="text-gray-500">({o.note})</span>}
+          </label>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -100,113 +100,85 @@ function UploadPage() {
         <div className="mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex items-center">
-              <img
-                src={logoImage}
-                alt="KV Logo"
-                className="h-8 w-8"
-              />
+              <img src={logoImage} alt="KV Logo" className="h-8 w-8" />
               <span className="ml-2 text-xl font-semibold text-gray-900">GCode Assembly Portal</span>
             </div>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-2xl mx-auto pt-10 px-4 pb-16">
+      <div className="max-w-3xl mx-auto pt-8 px-4 pb-16">
+        <div className="bg-white border rounded-lg p-4 space-y-3 text-sm">
+          <div className="grid grid-cols-[6.5rem_1fr] gap-y-3 items-start">
+            <span className="font-medium text-gray-900">Mesh</span>
+            {radios('method', METHODS.map(m => ({ ...m, note: undefined })), method, setMethod)}
+            {method === 'solid' && (
+              <>
+                <span className="font-medium text-gray-900">Resolution</span>
+                {radios('resolution', RESOLUTIONS, resolution, setResolution)}
+                <span className="font-medium text-gray-900">Simplify</span>
+                {radios('simplify', SIMPLIFY, tolerance, setTolerance)}
+                <span className="font-medium text-gray-900">Inside</span>
+                <label className="flex gap-1.5 items-center">
+                  <input type="checkbox" checked={fill} onChange={e => setFill(e.target.checked)} disabled={busy} />
+                  <span className="text-gray-900">Fill enclosed spaces</span>
+                  <span className="text-gray-500">(off: the part as printed, infill gaps and all)</span>
+                </label>
+              </>
+            )}
+          </div>
+          <p className="text-gray-500">{METHODS.find(m => m.id === method).note}</p>
+        </div>
+
         <div
-          className={`mt-8 border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
+          className={`mt-4 border-2 border-dashed rounded-lg p-10 text-center transition-colors ${
             isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
-          }`}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
+          } ${busy ? 'opacity-60' : ''}`}
+          onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={e => { e.preventDefault(); setIsDragging(false); convert(e.dataTransfer.files[0]); }}
         >
-          <Upload className="mx-auto h-12 w-12 text-gray-400" />
-          <div className="mt-4">
-            <label htmlFor="file-upload" className="cursor-pointer">
-              <span className="text-blue-600 hover:text-blue-500">Upload a file</span>
+          <Upload className="mx-auto h-10 w-10 text-gray-400" />
+          <div className="mt-3">
+            <label htmlFor="file-upload" className={busy ? 'cursor-default' : 'cursor-pointer'}>
+              <span className="text-blue-600 hover:text-blue-500">Choose a G-code file</span>
               <input
                 id="file-upload"
                 type="file"
                 className="sr-only"
                 accept=".gcode"
-                onChange={handleFileSelect}
+                disabled={busy}
+                onChange={e => { convert(e.target.files[0]); e.target.value = ''; }}
               />
             </label>
-            <p className="text-gray-500 mt-1">or drag and drop</p>
-            <p className="text-sm text-gray-500 mt-2">GCode files only. Nothing leaves your browser.</p>
+            <p className="text-gray-500 mt-1">or drop it here. It converts as soon as you choose it.</p>
+            <p className="text-sm text-gray-500 mt-1">Nothing leaves your browser.</p>
           </div>
-        </div>
-
-        <div className="mt-4 text-sm text-gray-600">
-          <span>Or try a file from the challenge: </span>
-          {SAMPLES.map((s, i) => (
-            <React.Fragment key={s.file}>
-              {i > 0 && <span> · </span>}
-              <button type="button" className="text-blue-600 hover:text-blue-500 underline" onClick={() => loadSample(s.file)}>{s.label}</button>
-            </React.Fragment>
-          ))}
-        </div>
-
-        <div className="mt-6 bg-white border rounded-lg p-4 space-y-4 text-sm">
-          <fieldset>
-            <legend className="font-medium text-gray-900 mb-2">Mesh</legend>
-            {METHODS.map(m => (
-              <label key={m.id} className="flex gap-2 items-start mb-2">
-                <input type="radio" name="method" value={m.id} checked={method === m.id} onChange={() => setMethod(m.id)} className="mt-1" />
-                <span><span className="text-gray-900">{m.label}</span><span className="block text-gray-500">{m.note}</span></span>
-              </label>
+          <div className="mt-4 text-sm text-gray-600">
+            <span>Or convert a file from the challenge: </span>
+            {SAMPLES.map((s, i) => (
+              <React.Fragment key={s.file}>
+                {i > 0 && <span> · </span>}
+                <button type="button" disabled={busy} className="text-blue-600 hover:text-blue-500 underline disabled:opacity-50" onClick={() => loadSample(s.file)}>{s.label}</button>
+              </React.Fragment>
             ))}
-          </fieldset>
-          {method === 'solid' && (
-            <>
-              <fieldset>
-                <legend className="font-medium text-gray-900 mb-2">Resolution</legend>
-                <div className="flex flex-wrap gap-4">
-                  {RESOLUTIONS.map(r => (
-                    <label key={r.id} className="flex gap-2 items-start">
-                      <input type="radio" name="resolution" value={r.id} checked={resolution === r.id} onChange={() => setResolution(r.id)} className="mt-1" />
-                      <span><span className="text-gray-900">{r.label}</span><span className="block text-gray-500">{r.note}</span></span>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-              <label className="flex gap-2 items-start">
-                <input type="checkbox" checked={fill} onChange={e => setFill(e.target.checked)} className="mt-1" />
-                <span><span className="text-gray-900">Fill enclosed spaces</span><span className="block text-gray-500">Infill pockets become solid, so the mesh is the part's outer boundary. Off: the part as printed, infill gaps and all.</span></span>
-              </label>
-              <fieldset>
-                <legend className="font-medium text-gray-900 mb-2">Simplify</legend>
-                <div className="flex flex-wrap gap-4">
-                  {SIMPLIFY.map(o => (
-                    <label key={o.value} className="flex gap-2 items-start">
-                      <input type="radio" name="simplify" checked={tolerance === o.value} onChange={() => setTolerance(o.value)} className="mt-1" />
-                      <span><span className="text-gray-900">{o.label}</span><span className="block text-gray-500">{o.note}</span></span>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-            </>
-          )}
+          </div>
         </div>
 
-        {uploadError && (
-          <div className="mt-4 p-3 bg-red-50 text-red-700 rounded-md text-sm">
-            {uploadError}
-          </div>
-        )}
-
-        {file && (
-          <div className="mt-4">
-            <p className="text-sm text-gray-600">Selected file: {file.name}</p>
-            <button
-              onClick={handleSubmit}
-              disabled={busy}
-              className="mt-2 w-full bg-blue-600 text-white rounded-md py-2 px-4 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors disabled:opacity-60"
-            >
-              {busy ? `Processing… ${Math.round(progress * 100)}%` : 'Upload and Process'}
-            </button>
-          </div>
-        )}
+        <div className="mt-4 min-h-[3.5rem]" aria-live="polite">
+          {status && (
+            <div className="p-3 bg-blue-50 text-blue-900 rounded-md text-sm">
+              <div className="flex justify-between">
+                <span>{status.name}: {status.step}…</span>
+                <span>{Math.round(status.progress * 100)}%</span>
+              </div>
+              <div className="mt-2 h-1.5 bg-blue-100 rounded">
+                <div className="h-1.5 bg-blue-600 rounded transition-all" style={{ width: `${Math.max(3, status.progress * 100)}%` }} />
+              </div>
+            </div>
+          )}
+          {error && <div className="p-3 bg-red-50 text-red-700 rounded-md text-sm" role="alert">{error}</div>}
+        </div>
       </div>
     </div>
   );
