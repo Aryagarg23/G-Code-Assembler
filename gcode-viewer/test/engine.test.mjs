@@ -277,17 +277,29 @@ test('layerAt puts a height in the layer whose top is at or above it', () => {
 // infill strands are part of the surface and get their own colour.
 test('as printed, the square prism shows its infill; filled, its surface is walls and skins only', () => {
   const text = gcode('SquarePrism');
+  // Share of surface AREA per kind (simplification leaves flat walls as a few
+  // big triangles, so counting triangles would understate them).
   const share = fill => {
     const r = processGcode(text, { fill, resolution: 'coarse' });
-    const c = new Array(5).fill(0);
-    for (const k of r.kinds) c[k]++;
     assert.equal(r.kinds.length, r.summary.triangles);
-    return c.map(v => v / r.kinds.length);
+    const dv = new DataView(r.stl);
+    const c = new Array(5).fill(0);
+    let total = 0;
+    for (let t = 0; t < r.kinds.length; t++) {
+      const p = [0, 1, 2].map(v => [0, 1, 2].map(k => dv.getFloat32(84 + t * 50 + 12 + v * 12 + k * 4, true)));
+      const u = p[1].map((x, k) => x - p[0][k]), w = p[2].map((x, k) => x - p[0][k]);
+      const area = Math.hypot(u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]) / 2;
+      c[r.kinds[t]] += area; total += area;
+    }
+    return c.map(v => v / total);
   };
   const printed = share(false), filled = share(true);
-  assert.ok(printed[3] > 0.05, `as printed, sparse infill share ${printed[3]}`);
-  assert.ok(filled[3] < 0.01, `filled, sparse infill share ${filled[3]}`);
-  assert.ok(filled[0] > 0.3, `filled, outer wall share ${filled[0]}`);
+  assert.ok(printed[3] > 0.05, `as printed, sparse infill area share ${printed[3]}`);
+  assert.ok(filled[3] < 0.01, `filled, sparse infill area share ${filled[3]}`);
+  // The four sides are 2(25x25) + 2(100x25) = 6250 of 11250 mm^2, about 56%;
+  // top and bottom are the rest. Walls plus skins should be the whole surface.
+  assert.ok(Math.abs(filled[0] - 6250 / 11250) < 0.06, `filled, outer wall area share ${filled[0]}`);
+  assert.ok(filled[0] + filled[2] > 0.97, `filled, walls + skins ${filled[0] + filled[2]}`);
 });
 
 test('the filled prism\'s top face is coloured as solid/top skin, its sides as outer wall', () => {
