@@ -1,17 +1,24 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { KIND_COLORS } from '../lib/kinds';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
 
-// The viewer shows the part up to the selected layer: blue below it, the layer
-// itself in red. Clipping a mesh only removes triangles, so on its own the cut
-// shows the inside of a thin shell and the part looks hollow. The red layer's
-// top is therefore capped with the stencil technique (three.js
-// webgl_clipping_stencil): back faces add one, front faces subtract one, and a
-// plane drawn at the cut fills exactly the pixels left non-zero, which are the
-// pixels where the cut passes through solid material.
-function capMaterials(plane) {
+// The viewer shows the part up to the selected layer, coloured by what each
+// bead is (outer wall, inner wall, solid layers, sparse infill), with the
+// selected layer's toolpaths drawn on top of the cut like a slicer preview.
+//
+// Clipping a mesh only removes triangles, so on its own the cut would show the
+// inside of a thin shell and the part would look hollow. The cut is capped
+// with the stencil technique (three.js webgl_clipping_stencil): back faces add
+// one, front faces subtract one, and a plane drawn at the cut fills exactly
+// the pixels left non-zero, which are where the cut passes through material.
+// The cap carries a texture of the layer's beads, so it reads as the layer.
+const CAP = 1.2; // world units; the model is scaled to fit in 1
+const TEX = 2048; // cap texture size in pixels
+
+function stencilMaterials(plane) {
   const base = {
     depthWrite: false,
     depthTest: false,
@@ -37,59 +44,92 @@ function capMaterials(plane) {
   return { back, front };
 }
 
-export function layerPlanes(currentLayer, layerHeight, scale) {
-  const h = layerHeight * scale;
-  const below = currentLayer * h; // top of the blue part, bottom of the red layer
-  const top = (currentLayer + 1) * h; // top of the red layer, where the cap goes
-  return {
-    blue: new THREE.Plane(new THREE.Vector3(0, -1, 0), below),
-    redBottom: new THREE.Plane(new THREE.Vector3(0, 1, 0), -below),
-    redTop: new THREE.Plane(new THREE.Vector3(0, -1, 0), top),
-    capY: top,
-  };
+// mm (G-code coordinates) to world: the mesh is centred in plan, its base on
+// the grid, scaled by s, and turned Z-up to Y-up.
+export function cutHeight(layerTopMm, xf) {
+  return (layerTopMm - xf.minZ) * xf.s;
 }
 
-function Model({ url, currentLayer, layerHeight }) {
-  const blueMeshRef = useRef();
-  const redMeshRef = useRef();
+export function drawLayer(ctx, toolpaths, layerIndex, xf) {
+  ctx.fillStyle = '#cfd4dc';
+  ctx.fillRect(0, 0, TEX, TEX);
+  if (!toolpaths) return;
+  const { beads, starts } = toolpaths;
+  const k = xf.s * TEX / CAP; // pixels per mm
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (let b = starts[layerIndex]; b < starts[layerIndex + 1]; b++) {
+    const o = b * 6;
+    ctx.strokeStyle = KIND_COLORS[beads[o + 5]] ?? KIND_COLORS[4];
+    ctx.lineWidth = Math.max(1, beads[o + 4] * k);
+    ctx.beginPath();
+    ctx.moveTo(TEX / 2 + (beads[o] - xf.cx) * k, TEX / 2 - (beads[o + 1] - xf.cy) * k);
+    ctx.lineTo(TEX / 2 + (beads[o + 2] - xf.cx) * k, TEX / 2 - (beads[o + 3] - xf.cy) * k);
+    ctx.stroke();
+  }
+}
+
+function Model({ url, kinds, toolpaths, layers, currentLayer }) {
+  const meshRef = useRef();
   const stencilBackRef = useRef();
   const stencilFrontRef = useRef();
   const capRef = useRef();
-  // Bumped when a model finishes loading: loading swaps in fresh materials, so
-  // the layer clipping has to be applied again (before, the first view showed
-  // the whole model in the highlight colour until the slider moved).
+  const xfRef = useRef(null);
+  const canvas = useMemo(() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = TEX;
+    return c;
+  }, []);
+  const texture = useMemo(() => {
+    const t = new THREE.CanvasTexture(canvas);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    return t;
+  }, [canvas]);
+  // Bumped when a model finishes loading, so the cut is applied to it.
   const [loaded, setLoaded] = useState(0);
 
   useEffect(() => {
     const loader = new STLLoader();
     loader.load(url, (geometry) => {
-      geometry.center();
       geometry.computeBoundingBox();
-      const boundingBox = geometry.boundingBox;
-      if (!boundingBox) return;
+      const box = geometry.boundingBox;
+      if (!box) return;
+      const size = box.getSize(new THREE.Vector3());
+      const s = 1 / Math.max(size.x, size.y, size.z);
+      xfRef.current = { cx: (box.min.x + box.max.x) / 2, cy: (box.min.y + box.max.y) / 2, minZ: box.min.z, s };
+      geometry.center();
 
-      const size = boundingBox.getSize(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z);
-      const scaleFactor = 1 / maxDim;
-      // STL is Z-up (the printer's build direction); three.js is Y-up. Turn
-      // the model so its layers stack upward, base on the grid.
-      const scaledHeight = size.z * scaleFactor;
-
-      const meshes = [blueMeshRef, redMeshRef, stencilBackRef, stencilFrontRef].map(r => r.current);
-      if (meshes.some(m => !m) || !capRef.current) return;
-      for (const m of meshes) {
-        m.geometry = geometry;
-        m.scale.set(scaleFactor, scaleFactor, scaleFactor);
-        m.rotation.x = -Math.PI / 2;
-        m.position.y = scaledHeight / 2;
+      // One colour per triangle, from the kind of the bead it came from.
+      const n = geometry.attributes.position.count;
+      const colors = new Float32Array(n * 3);
+      // THREE.Color already converts hex (sRGB) into the linear working space
+      // under three's colour management, which is what vertex colours expect.
+      const palette = KIND_COLORS.map(c => new THREE.Color(c));
+      const fallback = new THREE.Color('#3b82f6');
+      const perTri = kinds && kinds.length * 3 === n;
+      for (let v = 0; v < n; v++) {
+        const c = perTri ? palette[kinds[(v / 3) | 0]] ?? palette[4] : fallback;
+        colors[v * 3] = c.r; colors[v * 3 + 1] = c.g; colors[v * 3 + 2] = c.b;
       }
+      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-      blueMeshRef.current.material = new THREE.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.4, roughness: 0.5 });
-      redMeshRef.current.material = new THREE.MeshStandardMaterial({ color: 0xff0000, metalness: 0.4, roughness: 0.5 });
+      const all = [meshRef, stencilBackRef, stencilFrontRef].map(r => r.current);
+      if (all.some(m => !m) || !capRef.current) return;
+      for (const m of all) {
+        m.geometry = geometry;
+        m.scale.set(s, s, s);
+        m.rotation.x = -Math.PI / 2; // STL is Z-up; three.js is Y-up
+        m.position.y = (size.z * s) / 2;
+      }
+      meshRef.current.material = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.05, roughness: 0.75 });
       capRef.current.material = new THREE.MeshStandardMaterial({
-        color: 0xff0000,
-        metalness: 0.4,
-        roughness: 0.5,
+        map: texture,
+        metalness: 0.05,
+        roughness: 0.75,
+        polygonOffset: true, // win against the part's own top face at the top layer
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -4,
         stencilWrite: true,
         stencilRef: 0,
         stencilFunc: THREE.NotEqualStencilFunc,
@@ -97,24 +137,25 @@ function Model({ url, currentLayer, layerHeight }) {
         stencilZFail: THREE.ReplaceStencilOp,
         stencilZPass: THREE.ReplaceStencilOp,
       });
-      setLoaded(n => n + 1);
+      setLoaded(x => x + 1);
     });
-  }, [url]);
+  }, [url, kinds, texture]);
 
   useEffect(() => {
-    const blue = blueMeshRef.current;
-    if (!blue || !blue.material || !blue.material.isMeshStandardMaterial) return;
-    if (currentLayer === null || layerHeight === null) return;
-    const p = layerPlanes(currentLayer, layerHeight, blue.scale.y);
-
-    blue.material.clippingPlanes = [p.blue];
-    redMeshRef.current.material.clippingPlanes = [p.redBottom, p.redTop];
-    const { back, front } = capMaterials(p.redTop);
+    const mesh = meshRef.current, xf = xfRef.current;
+    if (!mesh || !xf || !mesh.material || !mesh.material.isMeshStandardMaterial) return;
+    if (currentLayer === null || !layers || !layers[currentLayer]) return;
+    const y = cutHeight(layers[currentLayer].z, xf);
+    const plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), y);
+    mesh.material.clippingPlanes = [plane];
+    mesh.material.needsUpdate = true;
+    const { back, front } = stencilMaterials(plane);
     stencilBackRef.current.material = back;
     stencilFrontRef.current.material = front;
-    capRef.current.position.y = p.capY;
-    for (const m of [blue.material, redMeshRef.current.material]) m.needsUpdate = true;
-  }, [currentLayer, layerHeight, loaded]);
+    capRef.current.position.y = y;
+    drawLayer(canvas.getContext('2d'), toolpaths, currentLayer, xf);
+    texture.needsUpdate = true;
+  }, [currentLayer, layers, toolpaths, loaded, canvas, texture]);
 
   return (
     <>
@@ -127,15 +168,14 @@ function Model({ url, currentLayer, layerHeight }) {
         rotation={[-Math.PI / 2, 0, 0]}
         onAfterRender={(renderer) => renderer.clearStencil()}
       >
-        <planeGeometry args={[4, 4]} />
+        <planeGeometry args={[CAP, CAP]} />
       </mesh>
-      <mesh ref={blueMeshRef} renderOrder={2} />
-      <mesh ref={redMeshRef} renderOrder={2} />
+      <mesh ref={meshRef} renderOrder={2} />
     </>
   );
 }
 
-function Scene({ fileUrl, currentLayer, layerHeight, controlsRef }) {
+function Scene({ fileUrl, kinds, toolpaths, layers, currentLayer, controlsRef }) {
   return (
     <Canvas
       shadows
@@ -148,7 +188,7 @@ function Scene({ fileUrl, currentLayer, layerHeight, controlsRef }) {
       {/* Directional light for strong shadows */}
       <directionalLight position={[5, 10, 5]} intensity={1.2} castShadow />
 
-      <Model url={fileUrl} currentLayer={currentLayer} layerHeight={layerHeight} />
+      <Model url={fileUrl} kinds={kinds} toolpaths={toolpaths} layers={layers} currentLayer={currentLayer} />
 
       {/* Ground Plane */}
       <mesh receiveShadow position={[0, -0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -176,11 +216,11 @@ function Scene({ fileUrl, currentLayer, layerHeight, controlsRef }) {
   );
 }
 
-export function ModelViewer({ fileData, currentLayer, layerHeight, controlsRef }) {
+export function ModelViewer({ fileData, kinds, toolpaths, layers, currentLayer, controlsRef }) {
   return (
     <div className="w-full h-[600px] rounded-lg overflow-hidden">
       {fileData ? (
-        <Scene fileUrl={fileData} currentLayer={currentLayer} layerHeight={layerHeight} controlsRef={controlsRef} />
+        <Scene fileUrl={fileData} kinds={kinds} toolpaths={toolpaths} layers={layers} currentLayer={currentLayer} controlsRef={controlsRef} />
       ) : (
         <div className="w-full h-full flex items-center justify-center bg-gray-100">
           <p className="text-gray-500">No model loaded</p>

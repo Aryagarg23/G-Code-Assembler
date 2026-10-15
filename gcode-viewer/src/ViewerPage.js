@@ -6,6 +6,7 @@ import { ModelViewer } from './components/ModelViewer';
 import { ViewerControls } from './components/ViewsControl';
 import logoImage from './logo.svg';
 import { currentModel } from './engine/session';
+import { KIND_COLORS, KIND_NAMES } from './lib/kinds';
 
 const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? v.toFixed(d) : '–');
 const mb = bytes => `${(bytes / 1048576).toFixed(1)} MB`;
@@ -93,10 +94,22 @@ function ViewerPage() {
                 <div className="space-y-6">
                   <ModelViewer
                     fileData={model.url}
+                    kinds={model.kinds}
+                    toolpaths={model.toolpaths}
+                    layers={s.layers}
                     currentLayer={currentLayer}
-                    layerHeight={layerHeight}
                     controlsRef={controlsRef}
                   />
+                  {model.kinds && (
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700">
+                      {KIND_NAMES.map((name, k) => (
+                        <span key={name} className="flex items-center gap-1.5">
+                          <span className="inline-block w-3 h-3 rounded-sm" style={{ background: KIND_COLORS[k] }} />
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div className="space-y-4">
                     <div className="flex justify-between text-sm text-gray-600">
                       <span>Layer {currentLayer + 1} of {layerCount}</span>
@@ -162,13 +175,16 @@ function ViewerPage() {
               {layer && (
                 <Card>
                   <CardHeader>
-                    <h3 className="text-lg font-medium">Layer {currentLayer + 1} <span className="text-sm font-normal text-red-600">(red)</span></h3>
+                    <h3 className="text-lg font-medium">Layer {currentLayer + 1} <span className="text-sm font-normal text-gray-500">(on top of the cut)</span></h3>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-1 text-sm text-gray-600">
                       <Row label="Top (nozzle) Z">{num(layer.z, 2)} mm</Row>
                       <Row label="Thickness">{num(layer.h, 2)} mm</Row>
                       <Row label="Beads">{layer.beads.toLocaleString()}</Row>
+                      {layer.byKind && KIND_NAMES.map((name, k) => layer.byKind[k] > 0 && (
+                        <Row key={name} label={<span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: KIND_COLORS[k] }} />{name}</span>}>{layer.byKind[k].toLocaleString()}</Row>
+                      ))}
                     </div>
                   </CardContent>
                 </Card>
