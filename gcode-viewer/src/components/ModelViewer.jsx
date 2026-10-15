@@ -1,13 +1,60 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
+
+// The viewer shows the part up to the selected layer: blue below it, the layer
+// itself in red. Clipping a mesh only removes triangles, so on its own the cut
+// shows the inside of a thin shell and the part looks hollow. The red layer's
+// top is therefore capped with the stencil technique (three.js
+// webgl_clipping_stencil): back faces add one, front faces subtract one, and a
+// plane drawn at the cut fills exactly the pixels left non-zero, which are the
+// pixels where the cut passes through solid material.
+function capMaterials(plane) {
+  const base = {
+    depthWrite: false,
+    depthTest: false,
+    colorWrite: false,
+    stencilWrite: true,
+    stencilFunc: THREE.AlwaysStencilFunc,
+    clippingPlanes: [plane],
+  };
+  const back = new THREE.MeshBasicMaterial({
+    ...base,
+    side: THREE.BackSide,
+    stencilFail: THREE.IncrementWrapStencilOp,
+    stencilZFail: THREE.IncrementWrapStencilOp,
+    stencilZPass: THREE.IncrementWrapStencilOp,
+  });
+  const front = new THREE.MeshBasicMaterial({
+    ...base,
+    side: THREE.FrontSide,
+    stencilFail: THREE.DecrementWrapStencilOp,
+    stencilZFail: THREE.DecrementWrapStencilOp,
+    stencilZPass: THREE.DecrementWrapStencilOp,
+  });
+  return { back, front };
+}
+
+export function layerPlanes(currentLayer, layerHeight, scale) {
+  const h = layerHeight * scale;
+  const below = currentLayer * h; // top of the blue part, bottom of the red layer
+  const top = (currentLayer + 1) * h; // top of the red layer, where the cap goes
+  return {
+    blue: new THREE.Plane(new THREE.Vector3(0, -1, 0), below),
+    redBottom: new THREE.Plane(new THREE.Vector3(0, 1, 0), -below),
+    redTop: new THREE.Plane(new THREE.Vector3(0, -1, 0), top),
+    capY: top,
+  };
+}
 
 function Model({ url, currentLayer, layerHeight }) {
   const blueMeshRef = useRef();
   const redMeshRef = useRef();
-  const { gl } = useThree();
+  const stencilBackRef = useRef();
+  const stencilFrontRef = useRef();
+  const capRef = useRef();
   // Bumped when a model finishes loading: loading swaps in fresh materials, so
   // the layer clipping has to be applied again (before, the first view showed
   // the whole model in the highlight colour until the slider moved).
@@ -17,8 +64,6 @@ function Model({ url, currentLayer, layerHeight }) {
     const loader = new STLLoader();
     loader.load(url, (geometry) => {
       geometry.center();
-
-      // Calculate the bounding box to get size for scaling and positioning
       geometry.computeBoundingBox();
       const boundingBox = geometry.boundingBox;
       if (!boundingBox) return;
@@ -26,78 +71,66 @@ function Model({ url, currentLayer, layerHeight }) {
       const size = boundingBox.getSize(new THREE.Vector3());
       const maxDim = Math.max(size.x, size.y, size.z);
       const scaleFactor = 1 / maxDim;
+      // STL is Z-up (the printer's build direction); three.js is Y-up. Turn
+      // the model so its layers stack upward, base on the grid.
+      const scaledHeight = size.z * scaleFactor;
 
-      // Set materials
-      const blueMaterial = new THREE.MeshStandardMaterial({
-        color: 0x3b82f6, // Blue color for the main model
-        metalness: 0.4,
-        roughness: 0.5,
-        clippingPlanes: [],
-      });
-
-      const redMaterial = new THREE.MeshStandardMaterial({
-        color: 0xff0000, // Red color for the highlighted layer
-        metalness: 0.4,
-        roughness: 0.5,
-        clippingPlanes: [],
-      });
-
-      // Apply geometry and transformation to blue and red meshes
-      if (blueMeshRef.current && redMeshRef.current) {
-        blueMeshRef.current.geometry = geometry;
-        redMeshRef.current.geometry = geometry.clone();
-
-        blueMeshRef.current.material = blueMaterial;
-        redMeshRef.current.material = redMaterial;
-
-        blueMeshRef.current.scale.set(scaleFactor, scaleFactor, scaleFactor);
-        redMeshRef.current.scale.set(scaleFactor, scaleFactor, scaleFactor);
-
-        // STL is Z-up (the printer's build direction); three.js is Y-up. Turn
-        // the model so its layers stack upward. (The 2024 viewer only turned
-        // "X" and "Y" builds, so ordinary Z-up prints lay on their side and
-        // the layer highlight cut along the wrong axis.)
-        blueMeshRef.current.rotation.x = -Math.PI / 2;
-        redMeshRef.current.rotation.x = -Math.PI / 2;
-
-        // Move models up by half of their height to align the base with the origin
-        const scaledHeight = size.z * scaleFactor;
-        blueMeshRef.current.position.y = scaledHeight / 2;
-        redMeshRef.current.position.y = scaledHeight / 2;
-        setLoaded(n => n + 1);
+      const meshes = [blueMeshRef, redMeshRef, stencilBackRef, stencilFrontRef].map(r => r.current);
+      if (meshes.some(m => !m) || !capRef.current) return;
+      for (const m of meshes) {
+        m.geometry = geometry;
+        m.scale.set(scaleFactor, scaleFactor, scaleFactor);
+        m.rotation.x = -Math.PI / 2;
+        m.position.y = scaledHeight / 2;
       }
+
+      blueMeshRef.current.material = new THREE.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.4, roughness: 0.5 });
+      redMeshRef.current.material = new THREE.MeshStandardMaterial({ color: 0xff0000, metalness: 0.4, roughness: 0.5 });
+      capRef.current.material = new THREE.MeshStandardMaterial({
+        color: 0xff0000,
+        metalness: 0.4,
+        roughness: 0.5,
+        stencilWrite: true,
+        stencilRef: 0,
+        stencilFunc: THREE.NotEqualStencilFunc,
+        stencilFail: THREE.ReplaceStencilOp,
+        stencilZFail: THREE.ReplaceStencilOp,
+        stencilZPass: THREE.ReplaceStencilOp,
+      });
+      setLoaded(n => n + 1);
     });
   }, [url]);
 
-  // Update clipping planes for blue and red models
   useEffect(() => {
-    if (blueMeshRef.current && redMeshRef.current && currentLayer !== null && layerHeight !== null) {
-      const scaleFactor = blueMeshRef.current.scale.y;
-      const adjustedLayerHeight = layerHeight * scaleFactor;
+    const blue = blueMeshRef.current;
+    if (!blue || !blue.material || !blue.material.isMeshStandardMaterial) return;
+    if (currentLayer === null || layerHeight === null) return;
+    const p = layerPlanes(currentLayer, layerHeight, blue.scale.y);
 
-      // Blue model: clipping everything below current layer
-      const blueClipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), currentLayer * adjustedLayerHeight);
-
-      // Red model: clipping everything except the current layer (inverted mask)
-      const redClipPlaneTop = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(currentLayer * adjustedLayerHeight));
-      const redClipPlaneBottom = new THREE.Plane(new THREE.Vector3(0, -1, 0), (currentLayer + 1) * adjustedLayerHeight);
-
-      // Enable local clipping
-      gl.localClippingEnabled = true;
-
-      // Apply clipping planes
-      blueMeshRef.current.material.clippingPlanes = [blueClipPlane];
-      blueMeshRef.current.material.needsUpdate = true;
-
-      redMeshRef.current.material.clippingPlanes = [redClipPlaneTop, redClipPlaneBottom];
-      redMeshRef.current.material.needsUpdate = true;
-    }
-  }, [currentLayer, layerHeight, gl, loaded]);
+    blue.material.clippingPlanes = [p.blue];
+    redMeshRef.current.material.clippingPlanes = [p.redBottom, p.redTop];
+    const { back, front } = capMaterials(p.redTop);
+    stencilBackRef.current.material = back;
+    stencilFrontRef.current.material = front;
+    capRef.current.position.y = p.capY;
+    for (const m of [blue.material, redMeshRef.current.material]) m.needsUpdate = true;
+  }, [currentLayer, layerHeight, loaded]);
 
   return (
     <>
-      <mesh ref={blueMeshRef} />
-      <mesh ref={redMeshRef} />
+      <mesh ref={stencilBackRef} renderOrder={1} />
+      <mesh ref={stencilFrontRef} renderOrder={1} />
+      <mesh
+        ref={capRef}
+        visible={loaded > 0}
+        renderOrder={1.1}
+        rotation={[-Math.PI / 2, 0, 0]}
+        onAfterRender={(renderer) => renderer.clearStencil()}
+      >
+        <planeGeometry args={[4, 4]} />
+      </mesh>
+      <mesh ref={blueMeshRef} renderOrder={2} />
+      <mesh ref={redMeshRef} renderOrder={2} />
     </>
   );
 }
@@ -106,6 +139,7 @@ function Scene({ fileUrl, currentLayer, layerHeight, controlsRef }) {
   return (
     <Canvas
       shadows
+      gl={{ stencil: true, localClippingEnabled: true }}
       camera={{ position: [1.6, 1.3, 1.9], fov: 50 }}
       style={{ background: '#f3f4f6' }}
     >
