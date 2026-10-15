@@ -24,6 +24,20 @@
 // Feature names that are not the part, in any slicer's wording ("Skirt/Brim",
 // "SUPPORT-INTERFACE", "Support material", "Prime tower", "prime pillar",
 // "Wipe tower", "RAFT", "Custom" start/end code, "Ironing").
+// What each bead is, in the four groups someone who prints reads a part by:
+// the outer wall (what you see and touch), inner walls, solid layers (top and
+// bottom skins, solid infill, bridges, gap fill) and sparse infill. Every
+// slicer names these differently; anything unnamed is "other".
+export const KINDS = ['Outer wall', 'Inner wall', 'Solid / top / bottom', 'Sparse infill', 'Other'];
+export function featureKind(name = '') {
+  const n = name.toLowerCase();
+  if (/outer wall|external perimeter|wall-outer|outer perimeter|overhang/.test(n)) return 0;
+  if (/top|bottom|solid|skin|bridge|gap|ironing/.test(n)) return 2;
+  if (/infill|fill/.test(n)) return 3;
+  if (/inner wall|wall-inner|perimeter|wall|shell/.test(n)) return 1;
+  return 4;
+}
+
 const EXCLUDED_FEATURE = /skirt|brim|support|prime|wipe|purge|raft|custom|ironing/i;
 const LAYER_MARKER = /^(; ?CHANGE_LAYER|;LAYER_CHANGE|;LAYER:-?\d+|; layer \d+, Z = )/;
 const END_MARKER = /^(; ?MACHINE_END_GCODE_START|;\s*filament end gcode|;End of Gcode|; ?EXECUTABLE_BLOCK_END|;TYPE:END|; layer end)/i;
@@ -212,6 +226,7 @@ function readSettings(text) {
 
 // Group moves into layers by Z and give each bead its width.
 function buildLayers(moves, features, { filamentArea, filamentDiameter, settings, counts, keepAll }) {
+  const kindOf = features.map(featureKind);
   const byZ = new Map();
   for (let i = 0; i < moves.length; i += 7) {
     const z = Math.round(moves[i + 4] * 1e4) / 1e4;
@@ -234,7 +249,9 @@ function buildLayers(moves, features, { filamentArea, filamentDiameter, settings
     prevZ = z;
     const list = byZ.get(z);
     const segs = new Float64Array(list.length * 5); // x0 y0 x1 y1 width
+    const kinds = new Uint8Array(list.length); // featureKind of each bead
     let k = 0;
+    let b = 0;
     for (const i of list) {
       const x0 = moves[i], y0 = moves[i + 1], x1 = moves[i + 2], y1 = moves[i + 3];
       const len = Math.hypot(x1 - x0, y1 - y0);
@@ -246,8 +263,9 @@ function buildLayers(moves, features, { filamentArea, filamentDiameter, settings
       if (w < lo || w > hi) { clamped++; w = Math.min(hi, Math.max(lo, w)); }
       widths.push(w);
       segs[k++] = x0; segs[k++] = y0; segs[k++] = x1; segs[k++] = y1; segs[k++] = w;
+      kinds[b++] = kindOf[moves[i + 6]];
     }
-    layers.push({ z, h, segs });
+    layers.push({ z, h, segs, kinds });
   }
   const sorted = widths.slice().sort((a, b) => a - b);
   const hs = layers.map(l => l.h).sort((a, b) => a - b);

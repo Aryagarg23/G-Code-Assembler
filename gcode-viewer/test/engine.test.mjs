@@ -247,3 +247,77 @@ test('a tighter tolerance keeps more triangles; zero keeps the mesh as it is', (
   const { summary } = processGcode(gcode('SquarePrism'), { tolerance: 0 });
   assert.equal(summary.simplified, null);
 });
+
+// --- Bead kinds (viewer colouring) ---------------------------------------
+import { featureKind, KINDS } from '../src/engine/parse.mjs';
+import { triangleKinds, layerAt } from '../src/engine/kinds.mjs';
+
+test('featureKind reads every supported slicer\'s names into the same four groups', () => {
+  const cases = {
+    0: ['Outer wall', 'External perimeter', 'WALL-OUTER', 'Overhang wall', 'Overhang perimeter'],
+    1: ['Inner wall', 'Perimeter', 'WALL-INNER', 'shell'],
+    2: ['Top surface', 'Bottom surface', 'Internal solid infill', 'Solid infill', 'Top solid infill', 'SKIN', 'Bridge', 'Bridge infill', 'Gap infill', 'Gap fill'],
+    3: ['Sparse infill', 'Internal infill', 'FILL', 'infill'],
+    4: ['Extrusion', ''],
+  };
+  for (const [kind, names] of Object.entries(cases)) for (const n of names) assert.equal(featureKind(n), Number(kind), n);
+  assert.equal(KINDS.length, 5);
+});
+
+test('layerAt puts a height in the layer whose top is at or above it', () => {
+  const tops = [0.2, 0.4, 0.6];
+  assert.equal(layerAt(tops, 0.1), 0);
+  assert.equal(layerAt(tops, 0.2), 0);
+  assert.equal(layerAt(tops, 0.3), 1);
+  assert.equal(layerAt(tops, 9), 2);
+});
+
+// Why the viewer defaults to "as printed": a filled solid's surface is only
+// walls and skins, so colouring it shows no infill at all. As printed, the
+// infill strands are part of the surface and get their own colour.
+test('as printed, the square prism shows its infill; filled, its surface is walls and skins only', () => {
+  const text = gcode('SquarePrism');
+  // Share of surface AREA per kind (simplification leaves flat walls as a few
+  // big triangles, so counting triangles would understate them).
+  const share = fill => {
+    const r = processGcode(text, { fill, resolution: 'coarse' });
+    assert.equal(r.kinds.length, r.summary.triangles);
+    const dv = new DataView(r.stl);
+    const c = new Array(5).fill(0);
+    let total = 0;
+    for (let t = 0; t < r.kinds.length; t++) {
+      const p = [0, 1, 2].map(v => [0, 1, 2].map(k => dv.getFloat32(84 + t * 50 + 12 + v * 12 + k * 4, true)));
+      const u = p[1].map((x, k) => x - p[0][k]), w = p[2].map((x, k) => x - p[0][k]);
+      const area = Math.hypot(u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]) / 2;
+      c[r.kinds[t]] += area; total += area;
+    }
+    return c.map(v => v / total);
+  };
+  const printed = share(false), filled = share(true);
+  assert.ok(printed[3] > 0.05, `as printed, sparse infill area share ${printed[3]}`);
+  assert.ok(filled[3] < 0.01, `filled, sparse infill area share ${filled[3]}`);
+  // The four sides are 2(25x25) + 2(100x25) = 6250 of 11250 mm^2, about 56%;
+  // top and bottom are the rest. Walls plus skins should be the whole surface.
+  assert.ok(Math.abs(filled[0] - 6250 / 11250) < 0.06, `filled, outer wall area share ${filled[0]}`);
+  assert.ok(filled[0] + filled[2] > 0.97, `filled, walls + skins ${filled[0] + filled[2]}`);
+});
+
+test('the filled prism\'s top face is coloured as solid/top skin, its sides as outer wall', () => {
+  const r = processGcode(gcode('SquarePrism'), { fill: true, resolution: 'coarse' });
+  // Rebuild the triangle soup from the STL bytes: 80-byte header, count, then 50 bytes per triangle.
+  const dv = new DataView(r.stl);
+  const n = dv.getUint32(80, true);
+  let topZ = -Infinity;
+  for (let t = 0; t < n; t++) for (let v = 0; v < 3; v++) topZ = Math.max(topZ, dv.getFloat32(84 + t * 50 + 12 + v * 12 + 8, true));
+  let top = [0, 0], side = [0, 0];
+  for (let t = 0; t < n; t++) {
+    const o = 84 + t * 50;
+    const nz = dv.getFloat32(o + 8, true);
+    const zs = [0, 1, 2].map(v => dv.getFloat32(o + 12 + v * 12 + 8, true));
+    const cz = (zs[0] + zs[1] + zs[2]) / 3;
+    if (nz > 0.9 && cz > topZ - 0.15) { top[0]++; if (r.kinds[t] === 2) top[1]++; }
+    if (Math.abs(nz) < 0.1 && cz > 5 && cz < topZ - 5) { side[0]++; if (r.kinds[t] === 0) side[1]++; }
+  }
+  assert.ok(top[0] > 0 && top[1] / top[0] > 0.9, `top faces as skin: ${top[1]}/${top[0]}`);
+  assert.ok(side[0] > 0 && side[1] / side[0] > 0.9, `side faces as outer wall: ${side[1]}/${side[0]}`);
+});

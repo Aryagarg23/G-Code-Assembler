@@ -13,6 +13,8 @@ import { parseGcode } from './parse.mjs';
 import { buildSolid, toTriangles, checkClosed, RESOLUTIONS } from './solid.mjs';
 import { massProperties, toBinaryStl } from './stl.mjs';
 import { simplify } from './simplify.mjs';
+import { KINDS } from './parse.mjs';
+import { triangleKinds, packToolpaths } from './kinds.mjs';
 
 /**
  * @param {string} text  G-code
@@ -66,8 +68,13 @@ export function processGcode(text, options = {}) {
   const stl = toBinaryStl(tris, name);
   const { closed } = checkClosed(mesh);
   const { stats, settings, layers } = parsed;
+  // For the viewer only; the STL itself stays plain.
+  const kinds = triangleKinds(tris, layers);
+  const toolpaths = packToolpaths(layers);
   return {
     stl,
+    kinds,
+    toolpaths,
     summary: {
       method,
       closed,
@@ -79,7 +86,8 @@ export function processGcode(text, options = {}) {
       cell: solid.cell,
       subSlices: solid.subSlices,
       filled: fill,
-      layers: layers.map(l => ({ z: l.z, h: l.h, beads: l.segs.length / 5 })),
+      layers: layers.map(l => ({ z: l.z, h: l.h, beads: l.segs.length / 5, byKind: countKinds(l.kinds) })),
+      kindNames: KINDS,
       layerCount: layers.length,
       layerHeight: stats.medianLayerHeight,
       beadWidth: stats.medianWidth,
@@ -90,6 +98,12 @@ export function processGcode(text, options = {}) {
       ms: Date.now() - started,
     },
   };
+}
+
+function countKinds(kinds) {
+  const c = new Array(KINDS.length).fill(0);
+  for (const k of kinds) c[k]++;
+  return c;
 }
 
 function extent(tris) {

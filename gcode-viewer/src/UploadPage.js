@@ -23,6 +23,11 @@ const RESOLUTIONS = [
 ];
 
 // Simplification: merge triangles where the surface moves less than this.
+const INSIDE = [
+  { value: false, label: 'As printed', note: 'walls, solid layers and infill, exactly as laid down' },
+  { value: true, label: 'Filled', note: 'outer boundary only, for volume and simulation' },
+];
+
 const SIMPLIFY = [
   { value: 0.02, label: '0.02 mm' },
   { value: 0.05, label: '0.05 mm' },
@@ -37,7 +42,8 @@ function UploadPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [method, setMethod] = useState('solid');
   const [resolution, setResolution] = useState('coarse');
-  const [fill, setFill] = useState(true);
+  // Default: the part exactly as the printer lays it down, infill and all.
+  const [fill, setFill] = useState(false);
   const [tolerance, setTolerance] = useState(0.02);
   const [status, setStatus] = useState(null); // { name, step, progress } while converting
   const [error, setError] = useState(null);
@@ -119,11 +125,7 @@ function UploadPage() {
                 <span className="font-medium text-gray-900">Simplify</span>
                 {radios('simplify', SIMPLIFY, tolerance, setTolerance)}
                 <span className="font-medium text-gray-900">Inside</span>
-                <label className="flex gap-1.5 items-center">
-                  <input type="checkbox" checked={fill} onChange={e => setFill(e.target.checked)} disabled={busy} />
-                  <span className="text-gray-900">Fill enclosed spaces</span>
-                  <span className="text-gray-500">(off: the part as printed, infill gaps and all)</span>
-                </label>
+                {radios('inside', INSIDE, fill, setFill)}
               </>
             )}
           </div>

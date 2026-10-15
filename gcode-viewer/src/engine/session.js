@@ -10,11 +10,11 @@ export function runInWorker(file, options, onProgress) {
       if (data.progress !== undefined) { onProgress?.(data.progress, data.step); return; }
       worker.terminate();
       if (data.error) { reject(new Error(data.error)); return; }
-      const { stl, summary } = data.result;
+      const { stl, summary, kinds = null, toolpaths = null } = data.result;
       const url = URL.createObjectURL(new Blob([stl], { type: 'model/stl' }));
       if (current) URL.revokeObjectURL(current.url);
       const base = file.name.replace(/\.gcode$/i, '');
-      current = { url, summary, file: file.name, name: `${base}-${summary.method === 'legacy' ? 'hackathon' : 'solid'}.stl` };
+      current = { url, summary, kinds, toolpaths, file: file.name, name: `${base}-${summary.method === 'legacy' ? 'hackathon' : 'solid'}.stl` };
       resolve(current);
     };
     worker.onerror = e => { worker.terminate(); reject(new Error(e.message || 'Processing failed')); };

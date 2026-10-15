@@ -7,7 +7,7 @@ import { processGcode } from './pipeline.mjs';
 self.onmessage = ({ data }) => {
   try {
     const result = processGcode(data.text, { ...data, onProgress: (f, step) => self.postMessage({ progress: f, step }) });
-    self.postMessage({ result }, [result.stl]);
+    self.postMessage({ result }, [result.stl, ...(result.kinds ? [result.kinds.buffer, result.toolpaths.beads.buffer, result.toolpaths.starts.buffer] : [])]);
   } catch (e) {
     self.postMessage({ error: String(e?.message ?? e) });
   }
